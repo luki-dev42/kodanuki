@@ -45,12 +45,6 @@ enum class StrategyMember : std::uint8_t {
 	 * a pixel is the frame's prepared light.
 	 */
 	Join,
-	/**
-	 * Every vertex of the eye walk is connected to every surface of the
-	 * light subpath the walk led with, each connection a line tested like
-	 * an aim's (plugins/strategy/connect).
-	 */
-	Connect,
 };
 
 /**
@@ -316,7 +310,7 @@ Lines noLines();
  * Return how many paths of each kind a sample makes.
  *
  * Aim counts one where it is on. Join counts the join share where it is
- * on. Connect counts one where it is on and some lamp starts paths.
+ * on. The connections count none: no member connects.
  *
  * @param strategies The members.
  */
@@ -333,14 +327,6 @@ StrategyCounts countsOf(const Strategies& strategies);
  * one that aims.
  */
 StrategyCounts aimCounts(const Tracing& tracing, const Path& path, int vertex);
-
-/**
- * Return whether eye walks lead with a light subpath: Connect is on and
- * some lamp has a share.
- *
- * @param strategies The members.
- */
-bool strategyLeads(const Strategies& strategies);
 
 /**
  * Return whether a member is on.

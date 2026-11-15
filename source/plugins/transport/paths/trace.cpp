@@ -1106,14 +1106,9 @@ WalkPhase phaseOnLead(const LightWalk& lead) {
 	return lead.use == LightUse::Joining ? WalkPhase::Done : WalkPhase::Flying;
 }
 
-void ledWalk(const Tracing& tracing, Walk& walk, LightWalk* leads) {
-	walk.led = strategyLeads(tracing.strategies);
-	if (!walk.led) {
-		walk.phase = WalkPhase::Flying;
-		return;
-	}
-	leads[walk.lead] = leadStarted(tracing, walk.path);
-	walk.phase       = phaseOnLead(leads[walk.lead]);
+void ledWalk(Walk& walk) {
+	walk.led   = false;
+	walk.phase = WalkPhase::Flying;
 }
 
 void lightPathRestarted(const Tracing& tracing, std::uint32_t index, Walk& walk, LightWalk* leads) {
@@ -1122,7 +1117,7 @@ void lightPathRestarted(const Tracing& tracing, std::uint32_t index, Walk& walk,
 	walk.phase       = phaseOnLead(leads[walk.lead]);
 }
 
-void walkRestarted(const Tracing& tracing, const PixelSample& sample, Walk& walk, LightWalk* leads) {
+void walkRestarted(const Tracing& tracing, const PixelSample& sample, Walk& walk) {
 	const std::uint32_t pixel = std::uint32_t(sample.y) * std::uint32_t(tracing.lens.width) + std::uint32_t(sample.x);
 
 	guideRestarted(tracing.sampling, pixel, walk.companions.guide);
@@ -1133,10 +1128,10 @@ void walkRestarted(const Tracing& tracing, const PixelSample& sample, Walk& walk
 	if (tracing.recording) {
 		walk.first = missedSurface();
 	}
-	ledWalk(tracing, walk, leads);
+	ledWalk(walk);
 }
 
-Walk walkStarted(const Tracing& tracing, const PixelSample& sample, LightWalk* leads) {
+Walk walkStarted(const Tracing& tracing, const PixelSample& sample) {
 	const Onward onward = startedPath(tracing, sample);
 
 	const Companions companions = {
@@ -1156,7 +1151,7 @@ Walk walkStarted(const Tracing& tracing, const PixelSample& sample, LightWalk* l
 		.first      = missedSurface(),
 	};
 
-	walkRestarted(tracing, sample, walk, leads);
+	walkRestarted(tracing, sample, walk);
 	return walk;
 }
 
@@ -1613,7 +1608,7 @@ void walkedOut(const Tracing& tracing, Walk& walk, LightWalk* leads) {
 
 Recorded recordedPath(const Tracing& tracing, const PixelSample& sample) {
 	LightWalk lead = idleLead();
-	Walk walk      = walkStarted(tracing, sample, &lead);
+	Walk walk      = walkStarted(tracing, sample);
 	walkedOut(tracing, walk, &lead);
 
 	const Parts parts = {

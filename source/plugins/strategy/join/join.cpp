@@ -30,8 +30,7 @@ bool anyShare(const std::vector<double>& shares) {
 
 Strategies withLightShares(const Strategies& strategies, const Lights& lights, const MirrorBalls& mirrors) {
 	const bool relays            = strategyOn(strategies, StrategyMember::Join) && !mirrors.balls.empty();
-	const bool leads             = strategyOn(strategies, StrategyMember::Connect);
-	const std::vector<double> by = relays || leads ? lampShares(lights) : std::vector<double> {};
+	const std::vector<double> by = relays ? lampShares(lights) : std::vector<double> {};
 	const bool shared            = anyShare(by);
 	Strategies with              = strategies;
 	with.lampShares              = shared ? by : std::vector<double> {};

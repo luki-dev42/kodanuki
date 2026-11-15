@@ -37,23 +37,6 @@ SmoothGlass smoothGlassNamed(const std::string& name) {
 	return name == "lobe" ? SmoothGlass::Lobe : SmoothGlass::Exact;
 }
 
-std::vector<EmissionShare> chosenEmission(const Choices& choices) {
-	const std::vector<EmissionShare> alone = defaultSampling().emission;
-
-	const EmissionShare cosine = {
-		.member = SamplerMember::Cosine,
-		.share  = 0.5,
-	};
-
-	const EmissionShare mirrors = {
-		.member = SamplerMember::TowardMirrors,
-		.share  = 0.5,
-	};
-
-	const std::vector<EmissionShare> mixed = { cosine, mirrors };
-	return chosenIn(choices, "strategy/connect") && chosenIn(choices, "sampler/toward_mirrors") ? mixed : alone;
-}
-
 std::vector<SamplerMember> chosenAims(const Choices& choices) {
 	std::vector<SamplerMember> aims = { SamplerMember::Lamps };
 	if (chosenIn(choices, "sampler/sky_map")) {
@@ -71,7 +54,7 @@ Sampling chosenSampling(const Choices& choices) {
 	sampling.direction = chosenIn(choices, "sampler/highlight_guide") ? SamplerMember::HighlightGuide : SamplerMember::Material;
 	sampling.selection = chosenIn(choices, "sampler/each_lamp_first") ? SamplerMember::EachLampFirst : SamplerMember::ByContribution;
 	sampling.aims      = chosenAims(choices);
-	sampling.emission  = chosenEmission(choices);
+	sampling.emission  = defaultSampling().emission;
 	return sampling;
 }
 
@@ -79,9 +62,6 @@ Strategies chosenStrategies(const Choices& choices) {
 	Strategies strategies = coreStrategies();
 	if (chosenIn(choices, "strategy/join")) {
 		strategies.members.push_back(StrategyMember::Join);
-	}
-	if (chosenIn(choices, "strategy/connect")) {
-		strategies.members.push_back(StrategyMember::Connect);
 	}
 	return strategies;
 }

@@ -53,6 +53,5 @@ internal_height = 300
 "source/scene" = true
 "stopping/confidence_interval" = true
 "stopping/fixed_count" = false
-"strategy/connect" = false
 "strategy/join" = false
 "transport/paths" = true

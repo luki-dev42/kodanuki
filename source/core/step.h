@@ -310,8 +310,7 @@ void extendRays(const Renderer& renderer, Worker& worker);
  * weighs the sky and ends the walk; a hit becomes the vertex, what
  * glows there is weighed and the lines to the lights are chosen, so the
  * walk is Lighting or, with no line, Scattering. A Leading walk's
- * answer goes to its lead (the light subpath of strategy/connect and
- * the light pass). The slot is given the walk's phase and next ray. A
+ * answer goes to its lead (the light pass's walk). The slot is given the walk's phase and next ray. A
  * Probing slot is left answered for its pass's fold. The step reports
  * how many slots it takes.
  *

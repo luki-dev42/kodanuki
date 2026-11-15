@@ -62,7 +62,7 @@ PilotTrail emptyTrail() {
 	};
 }
 
-Walk pilotWalk(const Tracing& tracing, const PilotStart& start, LightWalk* leads) {
+Walk pilotWalk(const Tracing& tracing, const PilotStart& start) {
 	const PixelSample sample = {
 		.x        = start.x,
 		.y        = start.y,
@@ -70,7 +70,7 @@ Walk pilotWalk(const Tracing& tracing, const PilotStart& start, LightWalk* leads
 		.group    = 0,
 		.branches = 1,
 	};
-	Walk walk         = walkStarted(tracing, sample, leads);
+	Walk walk         = walkStarted(tracing, sample);
 	const Ray ray     = pixelRay(tracing.lens, start.throughX, start.throughY);
 	walk.ray          = ray;
 	walk.path.heading = ray.direction;
@@ -113,7 +113,7 @@ PilotTrail flownTrail(const Tracing& tracing, const PilotStart& start) {
 	std::vector<double> registers;
 	PilotTrail trail = emptyTrail();
 	LightWalk lead   = idleLead();
-	Walk walk        = pilotWalk(tracing, start, &lead);
+	Walk walk        = pilotWalk(tracing, start);
 	while (walk.phase != WalkPhase::Done) {
 		const Wanted wanted = wantedRay(tracing, walk, &lead);
 		const Hit hit       = intersect(tracing.geometry, wanted.ray);

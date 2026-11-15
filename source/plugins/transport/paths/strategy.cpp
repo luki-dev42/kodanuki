@@ -1,6 +1,5 @@
 #include "plugins/transport/paths/strategy.h"
 
-#include "plugins/strategy/connect/connect.h"
 #include "plugins/strategy/join/join.h"
 #include "plugins/transport/paths/trace.h"
 
@@ -42,7 +41,6 @@ void strategyStep(StrategyMember member, const Tracing& tracing, const StrategyV
 		case StrategyMember::Meet: meetStep(tracing, visit); return;
 		case StrategyMember::Aim: aimStep(tracing, visit); return;
 		case StrategyMember::Join: return;
-		case StrategyMember::Connect: connectStep(tracing, visit); return;
 	}
 }
 
@@ -70,8 +68,7 @@ LensLine lensLineFrom(StrategyMember member, const Tracing& tracing, const Light
 	switch (member) {
 		case StrategyMember::Join: return joinedLine(tracing, standing);
 		case StrategyMember::Meet:
-		case StrategyMember::Aim:
-		case StrategyMember::Connect: return noLensLine();
+		case StrategyMember::Aim: return noLensLine();
 	}
 
 	return noLensLine();
@@ -97,10 +94,6 @@ bool strategyOn(const Strategies& strategies, StrategyMember member) {
 	return std::find(strategies.members.begin(), strategies.members.end(), member) != strategies.members.end();
 }
 
-bool strategyLeads(const Strategies& strategies) {
-	return strategyOn(strategies, StrategyMember::Connect) && !strategies.lampShares.empty();
-}
-
 StrategyCounts aimCounts(const Tracing& tracing, const Path& path, int vertex) {
 	const StrategyCounts counts = countsOf(tracing.strategies);
 	return vertex == 0 ? sharedAim(counts, path.numbers.branches) : counts;
@@ -110,7 +103,7 @@ StrategyCounts countsOf(const Strategies& strategies) {
 	return StrategyCounts {
 		.aim     = strategyOn(strategies, StrategyMember::Aim) ? 1.0 : 0.0,
 		.join    = strategyOn(strategies, StrategyMember::Join) ? strategies.joinShare : 0.0,
-		.connect = strategyLeads(strategies) ? 1.0 : 0.0,
+		.connect = 0,
 	};
 }
 

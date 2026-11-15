@@ -41,7 +41,7 @@ std::vector<UseKey> pluginKeys() {
 		useKey("stopping", UseForm::One, { "fixed_count", "confidence_interval" }, "when a pixel is done: after --samples, or once its noise is within --tolerance"),
 		useKey("detail", UseForm::Joined, { "focus_on_view", "pilot", "split_hidden_primitives", "split_crowded_leaves" }, "what says how fine the tree's cells must be, besides their distance"),
 		useKey("build", UseForm::Joined, { "split_beside_finer", "cut_long_programs", "face_slabs", "shared_coefficients", "shared_subtrees" }, "the build passes that rewrite the tree"),
-		useKey("strategy", UseForm::Joined, { "join", "connect" }, "how paths are made besides meeting light and aiming at it"),
+		useKey("strategy", UseForm::Joined, { "join" }, "how paths are made besides meeting light and aiming at it"),
 		useKey("sampler", UseForm::Joined, { "sobol", "highlight_guide", "each_lamp_first", "sky_map", "glowing_surfaces", "toward_mirrors" }, "how numbers, directions and lights are drawn; without any, independent numbers, material directions, one light by contribution, aimed at lamps"),
 	};
 }
@@ -108,7 +108,6 @@ std::vector<std::string> defaultOwned() {
 		const std::vector<std::string> plugins = pluginsOfKey(key, useKeyNamed(key).members);
 		owned.insert(owned.end(), plugins.begin(), plugins.end());
 	}
-	std::erase(owned, "strategy/connect");
 	return owned;
 }
 

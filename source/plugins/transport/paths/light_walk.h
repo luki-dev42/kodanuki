@@ -34,16 +34,6 @@ LightWalk lightWalkStarted(const Tracing& tracing, const LightStart& start);
 LightWalk passWalkStarted(const Tracing& tracing, std::uint32_t index);
 
 /**
- * Start the light subpath an eye walk leads with: a Leading walk on the
- * stream of the eye's hashed with the lead's tag, indexed by the eye's
- * sample, unsequenced, on the eye's wavelengths.
- *
- * @param tracing What the transport reads.
- * @param path The eye path, fresh.
- */
-LightWalk leadStarted(const Tracing& tracing, const Path& path);
-
-/**
  * Return a light walk that is done and kept nothing: an eye walk's lead
  * where it leads with none.
  */

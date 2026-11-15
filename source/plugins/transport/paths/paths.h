@@ -131,8 +131,7 @@ LightWalk* leadsOf(const Worker& worker);
 SmoothGlass smoothGlassNamed(const std::string& name);
 
 /**
- * Return the Sampler members `--use` chose, with emission split toward
- * mirrors where connect is chosen; their states empty.
+ * Return the Sampler members `--use` chose, their states empty.
  *
  * @param choices The members and settings.
  */

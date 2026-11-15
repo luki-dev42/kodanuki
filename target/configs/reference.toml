@@ -50,6 +50,5 @@ smooth_glass = "exact"
 "source/scene" = true
 "stopping/confidence_interval" = false
 "stopping/fixed_count" = true
-"strategy/connect" = false
 "strategy/join" = false
 "transport/paths" = true

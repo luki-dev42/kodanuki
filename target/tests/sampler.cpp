@@ -774,52 +774,6 @@ std::string mediumText(const std::string& material) {
 	)";
 }
 
-std::string roomText() {
-	return R"(
-		render {
-			width     = 64;
-			height    = 40;
-			tolerance = 0;
-			samples   = 16;
-		}
-
-		function sphere(r) {
-			return length(p) - r;
-		}
-
-		function box(size) {
-			let q = abs(p) - size / 2;
-			return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);
-		}
-
-		camera {
-			eye    = [0, -1.7, 1.2];
-			target = [0, 1, 0.8];
-			fov    = 1.1;
-		}
-
-		sky gradient {
-			zenith  = [0, 0, 0];
-			horizon = [0, 0, 0];
-			ground  = [0, 0, 0];
-		}
-
-		light sphere {
-			at     = [-1.2, 1.2, 2.6];
-			radius = 0.12;
-			power  = [4, 4, 3.5];
-		}
-
-		paint(matte([0.7, 0.7, 0.7])) at([0, 0, 1.5]) cut {
-			box([4.4, 4.4, 3.4]);
-			box([4, 4, 3]);
-		}
-
-		paint(plastic([0.2, 0.5, 0.8], roughness = 0.3)) at([0.5, 0.6, 0.4]) sphere(0.4);
-		paint(matte([0.8, 0.3, 0.2])) at([-0.6, 0.9, 0.3]) box([0.6, 0.6, 0.6]);
-	)";
-}
-
 std::string coatsText() {
 	return std::string(pairStart) + R"(
 		sky gradient {
@@ -918,7 +872,7 @@ void checkFeaturePairings(const char* what, const std::string& text) {
 	const std::vector<Plugin> none          = {};
 	const std::vector<Plugin> passing       = testPreparations({ "sampler/toward_mirrors", "strategy/join" });
 	const std::vector<StrategyMember> meet  = { StrategyMember::Meet };
-	const std::vector<StrategyMember> every = { StrategyMember::Meet, StrategyMember::Aim, StrategyMember::Join, StrategyMember::Connect };
+	const std::vector<StrategyMember> every = { StrategyMember::Meet, StrategyMember::Aim, StrategyMember::Join };
 
 	const Pairing aimed = {
 		.what         = what,
@@ -932,7 +886,7 @@ void checkFeaturePairings(const char* what, const std::string& text) {
 	const Pairing joined = {
 		.what         = what,
 		.text         = text,
-		.off          = coreChosen(),
+		.off          = withStrategies(coreSampling(), meet),
 		.on           = withStrategies(coreSampling(), every),
 		.beforehand   = none,
 		.preparations = passing,
@@ -962,15 +916,12 @@ void checkMediumPairings(const char* what, const std::string& material) {
 }
 
 void checkStrategyPairings() {
-	const std::vector<Plugin> none              = {};
-	const std::vector<Plugin> passing           = testPreparations({ "sampler/toward_mirrors", "strategy/join" });
-	const std::vector<Plugin> surveyed          = testPreparations({ "sampler/toward_mirrors", "sampler/highlight_guide", "strategy/join" });
-	const std::vector<StrategyMember> meet      = { StrategyMember::Meet };
-	const std::vector<Plugin> shared            = testPreparations({ "strategy/join" });
-	const std::vector<StrategyMember> joined    = { StrategyMember::Meet, StrategyMember::Aim, StrategyMember::Join };
-	const std::vector<StrategyMember> aimed     = { StrategyMember::Meet, StrategyMember::Aim };
-	const std::vector<StrategyMember> connected = { StrategyMember::Meet, StrategyMember::Aim, StrategyMember::Connect };
-	const std::vector<StrategyMember> every     = { StrategyMember::Meet, StrategyMember::Aim, StrategyMember::Join, StrategyMember::Connect };
+	const std::vector<Plugin> none           = {};
+	const std::vector<Plugin> passing        = testPreparations({ "sampler/toward_mirrors", "strategy/join" });
+	const std::vector<Plugin> surveyed       = testPreparations({ "sampler/toward_mirrors", "sampler/highlight_guide", "strategy/join" });
+	const std::vector<StrategyMember> meet   = { StrategyMember::Meet };
+	const std::vector<StrategyMember> joined = { StrategyMember::Meet, StrategyMember::Aim, StrategyMember::Join };
+	const std::vector<StrategyMember> every  = { StrategyMember::Meet, StrategyMember::Aim, StrategyMember::Join };
 
 	const Pairing join = {
 		.what         = "Join",
@@ -999,15 +950,6 @@ void checkStrategyPairings() {
 		.preparations = surveyed,
 	};
 
-	const Pairing connect = {
-		.what         = "Connect",
-		.text         = roomText(),
-		.off          = withStrategies(coreSampling(), aimed),
-		.on           = withStrategies(coreSampling(), connected),
-		.beforehand   = none,
-		.preparations = shared,
-	};
-
 	const Pairing all = {
 		.what         = "every strategy with the guide",
 		.text         = causticText(),
@@ -1017,7 +959,7 @@ void checkStrategyPairings() {
 		.preparations = surveyed,
 	};
 
-	for (const Pairing& pairing : { join, towardMirrors, guided, connect, all }) {
+	for (const Pairing& pairing : { join, towardMirrors, guided, all }) {
 		checkPairing(pairing);
 	}
 }
@@ -1177,15 +1119,15 @@ void checkSampler() {
 	}
 	checkStrategyPairings();
 	checkSwitchPairings();
-	checkMediumPairings("meet+aim+join+connect through a dispersing glass", "glass(refraction = 1.5, dispersion = 0.045, roughness = 0)");
-	checkMediumPairings("meet+aim+join+connect through a dispersing rough glass", "glass(refraction = 1.5, dispersion = 0.045, roughness = 0.2)");
-	checkMediumPairings("meet+aim+join+connect through a soap bubble", "glass(refraction = 1.0001, film = [420, 1.33], roughness = 0)");
-	checkMediumPairings("meet+aim+join+connect through milk glass", "glass(refraction = 1.4, scatter = 6, lean = 0.3, roughness = 0.3)");
-	checkMediumPairings("meet+aim+join+connect through smoke behind smooth glass", "glass(refraction = 1.33, scatter = 2, lean = -0.4, absorb = [0.5, 0.2, 0.1], roughness = 0)");
-	checkFeaturePairings("meet+aim+join+connect through fog, crossed and aimed from", mediumText("glass(refraction = 1, scatter = 2, lean = 0.3, absorb = [0.3, 0.2, 0.1], roughness = 0)") + "paint(plastic([0.6, 0.3, 0.2], roughness = 0.4)) at([0.5, 0.6, 0.3]) sphere(0.3);");
-	checkFeaturePairings("meet+aim+join+connect through rough fog, crossed and aimed from", mediumText("glass(refraction = 1, scatter = 2, lean = 0.3, absorb = [0.3, 0.2, 0.1], roughness = 0.4)") + "paint(plastic([0.6, 0.3, 0.2], roughness = 0.4)) at([0.5, 0.6, 0.3]) sphere(0.3);");
-	checkMediumPairings("meet+aim+join+connect off a filmed metal", "metal([0.3, 0.3, 0.32], roughness = 0.12, film = [380, 1.45])");
-	checkFeaturePairings("meet+aim+join+connect with coats: bumps, ladders, paint, glow", coatsText());
+	checkMediumPairings("meet+aim+join through a dispersing glass", "glass(refraction = 1.5, dispersion = 0.045, roughness = 0)");
+	checkMediumPairings("meet+aim+join through a dispersing rough glass", "glass(refraction = 1.5, dispersion = 0.045, roughness = 0.2)");
+	checkMediumPairings("meet+aim+join through a soap bubble", "glass(refraction = 1.0001, film = [420, 1.33], roughness = 0)");
+	checkMediumPairings("meet+aim+join through milk glass", "glass(refraction = 1.4, scatter = 6, lean = 0.3, roughness = 0.3)");
+	checkMediumPairings("meet+aim+join through smoke behind smooth glass", "glass(refraction = 1.33, scatter = 2, lean = -0.4, absorb = [0.5, 0.2, 0.1], roughness = 0)");
+	checkFeaturePairings("meet+aim+join through fog, crossed and aimed from", mediumText("glass(refraction = 1, scatter = 2, lean = 0.3, absorb = [0.3, 0.2, 0.1], roughness = 0)") + "paint(plastic([0.6, 0.3, 0.2], roughness = 0.4)) at([0.5, 0.6, 0.3]) sphere(0.3);");
+	checkFeaturePairings("meet+aim+join through rough fog, crossed and aimed from", mediumText("glass(refraction = 1, scatter = 2, lean = 0.3, absorb = [0.3, 0.2, 0.1], roughness = 0.4)") + "paint(plastic([0.6, 0.3, 0.2], roughness = 0.4)) at([0.5, 0.6, 0.3]) sphere(0.3);");
+	checkMediumPairings("meet+aim+join off a filmed metal", "metal([0.3, 0.3, 0.32], roughness = 0.12, film = [380, 1.45])");
+	checkFeaturePairings("meet+aim+join with coats: bumps, ladders, paint, glow", coatsText());
 	checkRulePairings();
 }
 

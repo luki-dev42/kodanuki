@@ -8,8 +8,8 @@ namespace kodanuki {
  * Return the strategies with the lamps' shares and the join share the
  * frame traces with.
  *
- * The lamp shares are lampShares() where Connect is on, or where Join
- * is on and some sharp surface may relay a path (the mirror balls are
+ * The lamp shares are lampShares() where Join is on and some sharp
+ * surface may relay a path (the mirror balls are
  * not empty), and empty otherwise or where no lamp starts paths. The
  * join share is zero unless Join is on, the balls are not empty and some
  * lamp has a share.

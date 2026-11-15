@@ -25,7 +25,7 @@ KEYS = {
     'stopping': ('fixed_count', 'confidence_interval'),
     'detail': ('focus_on_view', 'pilot', 'split_hidden_primitives', 'split_crowded_leaves'),
     'build': ('split_beside_finer', 'cut_long_programs', 'face_slabs', 'shared_coefficients', 'shared_subtrees'),
-    'strategy': ('join', 'connect'),
+    'strategy': ('join',),
     'sampler': ('sobol', 'highlight_guide', 'each_lamp_first', 'sky_map', 'glowing_surfaces', 'toward_mirrors'),
 }
 LOOP_KEYS = {
@@ -40,7 +40,7 @@ ALWAYS = ('feature/absorption', 'feature/atmosphere', 'feature/dispersion',
     'feature/scattering', 'feature/sky_layers', 'transport/paths')
 SWITCHED = {'%s/%s' % (key, member): key for key, members in {**KEYS, **LOOP_KEYS}.items() for member in members}
 PLUGINS = sorted(list(SWITCHED) + list(BUILT) + list(ALWAYS))
-OFF = ('geometry/sphere_trace', 'execution/single', 'stopping/fixed_count', 'strategy/connect',
+OFF = ('geometry/sphere_trace', 'execution/single', 'stopping/fixed_count',
     'source/flight', 'sink/frames', 'sink/window', 'observer/metrics',
     'reconstruction/temporal', 'reconstruction/atrous', 'reconstruction/upsample', 'reconstruction/upscale')
 DEFAULTS = {name: name not in OFF for name in PLUGINS}

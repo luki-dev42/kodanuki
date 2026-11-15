@@ -148,7 +148,7 @@ void pathsScattered(const Renderer& renderer, Worker& worker) {
 
 void pathsStarted(const Renderer& renderer, Worker& worker, std::uint32_t slot) {
 	const Tracing& tracing = tracingOf(renderer.drawing.transported.get());
-	walkRestarted(tracing, worker.pool.samples[slot], walksOf(worker)[slot], leadsOf(worker));
+	walkRestarted(tracing, worker.pool.samples[slot], walksOf(worker)[slot]);
 	waitingSlot(tracing, slot, worker);
 }
 

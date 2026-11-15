@@ -304,7 +304,6 @@ void checkLanes(const char* path, const Drawing& drawing) {
 enum class MemberSet : std::uint8_t {
 	Core,
 	Defaults,
-	Connected,
 };
 
 struct FrameRun {
@@ -317,22 +316,7 @@ ChosenMembers chosenMembers(MemberSet members) {
 	if (members == MemberSet::Core) {
 		return coreChosen();
 	}
-	ChosenMembers chosen = defaultChosen();
-	if (members == MemberSet::Connected) {
-		const EmissionShare cosine = {
-			.member = SamplerMember::Cosine,
-			.share  = 0.5,
-		};
-
-		const EmissionShare mirrors = {
-			.member = SamplerMember::TowardMirrors,
-			.share  = 0.5,
-		};
-
-		chosen.strategies.members.push_back(StrategyMember::Connect);
-		chosen.sampling.emission = { cosine, mirrors };
-	}
-	return chosen;
+	return defaultChosen();
 }
 
 struct TileCount {
@@ -392,7 +376,6 @@ const char* memberSetName(MemberSet members) {
 	switch (members) {
 		case MemberSet::Core: return "core";
 		case MemberSet::Defaults: return "default";
-		case MemberSet::Connected: return "default and Connect";
 	}
 
 	return "core";
@@ -687,7 +670,6 @@ void checkExecutionScene(const char* path) {
 	checkLanes(path, drawing);
 	checkFrames(path, drawing, MemberSet::Core);
 	checkFrames(path, drawing, MemberSet::Defaults);
-	checkFrames(path, drawing, MemberSet::Connected);
 	checkSlabFrames(path, drawing);
 	checkSurfaces(path, drawing);
 }

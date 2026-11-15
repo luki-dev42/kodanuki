@@ -302,10 +302,7 @@ void checkSamplerPoint(const GenericSets& sets) {
 }
 
 void checkStrategyPoint(const GenericSets& sets) {
-	for (const std::string member : { "join", "connect" }) {
-		const std::string what = "Strategy: strategy/" + member + " keeps the mean of the reference set with geometry/tree and sampler/toward_mirrors";
-		checkChanged(what.c_str(), stillSpread(GenericRun { .uses = { "geometry=tree", "sampler=toward_mirrors", "strategy=" + member }, .flags = {} }), sets.tree);
-	}
+	checkChanged("Strategy: strategy/join keeps the mean of the reference set with geometry/tree and sampler/toward_mirrors", stillSpread(GenericRun { .uses = { "geometry=tree", "sampler=toward_mirrors", "strategy=join" }, .flags = {} }), sets.tree);
 }
 
 void checkGeometryImage(const GenericSets& sets) {

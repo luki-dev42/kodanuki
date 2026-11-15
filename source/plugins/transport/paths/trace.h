@@ -372,17 +372,14 @@ struct Answer {
  * Start a sample's walk at its camera ray, with the guide its pixel
  * starts with.
  *
- * Where the strategies lead (strategyLeads()), the walk first leads with
- * a light subpath from leadStarted(); a lead that is done at once leaves
- * the walk flying.
+ * The walk flies at once; it leads with no light subpath.
  *
  * The walk takes the first place among the light walks.
  *
  * @param tracing What the transport reads.
  * @param sample The pixel and the sample.
- * @param leads The light walks beside the walk, one at least.
  */
-Walk walkStarted(const Tracing& tracing, const PixelSample& sample, LightWalk* leads);
+Walk walkStarted(const Tracing& tracing, const PixelSample& sample);
 
 /**
  * Start a sample's walk in place, as walkStarted() starts it (rule 46).
@@ -394,9 +391,8 @@ Walk walkStarted(const Tracing& tracing, const PixelSample& sample, LightWalk* l
  * @param tracing What the transport reads.
  * @param sample The pixel and the sample.
  * @param walk The walk, any earlier state, which is started over.
- * @param leads The light walks beside the walks.
  */
-void walkRestarted(const Tracing& tracing, const PixelSample& sample, Walk& walk, LightWalk* leads);
+void walkRestarted(const Tracing& tracing, const PixelSample& sample, Walk& walk);
 
 /**
  * Start the light pass's path of an index in a walk's place (rule 46):

@@ -10,7 +10,6 @@ namespace kodanuki {
 
 constexpr double lightSurvivalCeiling = 0.95;
 constexpr std::uint64_t lightPassTag  = 0x6c69676874706173u;
-constexpr std::uint64_t leadTag       = 0x6c65616473756270u;
 
 struct Launch {
 	std::uint32_t lamp;
@@ -196,24 +195,6 @@ LightWalk passWalkStarted(const Tracing& tracing, std::uint32_t index) {
 		.use         = LightUse::Joining,
 		.numbers     = numbers,
 		.wavelengths = sampledWavelengths(numberAt(tracing.sampling, hue)),
-	};
-
-	return lightWalkStarted(tracing, start);
-}
-
-LightWalk leadStarted(const Tracing& tracing, const Path& path) {
-	const PathNumbers numbers = {
-		.stream    = math::mixedBits(path.numbers.stream ^ leadTag),
-		.index     = path.numbers.index,
-		.group     = path.numbers.index,
-		.branches  = 1,
-		.sequenced = false,
-	};
-
-	const LightStart start = {
-		.use         = LightUse::Leading,
-		.numbers     = numbers,
-		.wavelengths = path.wavelengths,
 	};
 
 	return lightWalkStarted(tracing, start);

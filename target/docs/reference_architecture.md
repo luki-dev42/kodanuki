@@ -155,7 +155,7 @@ own, a plugin with `Point::Owned`.
 |---|---|---|
 | `geometry/tree` | Detail | `detail/focus_on_view`, `pilot`, `split_hidden_primitives`, `split_crowded_leaves`; by distance always |
 | `geometry/tree` | Build | `build/split_beside_finer`, `cut_long_programs`, `face_slabs`, `shared_coefficients`, `shared_subtrees`, `faced_hits` |
-| `transport/paths` | Strategy | `strategy/join`, `strategy/connect`; meet and aim always |
+| `transport/paths` | Strategy | `strategy/join`; meet and aim always |
 | `transport/paths` | Sampler | `sampler/sobol`, `highlight_guide`, `each_lamp_first`, `sky_map`, `glowing_surfaces`, `toward_mirrors` |
 | `transport/paths` | Feature | `feature/absorption`, `atmosphere`, `clouds`, `coats`, `dispersion`, `path_rules`, `scattering`, `sky_layers` |
 
