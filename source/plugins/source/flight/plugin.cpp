@@ -2,7 +2,6 @@
 
 #include "core/render.h"
 #include "plugins/sink/window/exchange.h"
-#include "sdf/compare.h"
 #include "syntax/evaluator.h"
 
 #include <cstdio>
@@ -38,13 +37,12 @@ bool restingAfter(const Renderer& renderer) {
 void reloaded(Renderer& renderer, Exchange& exchange) {
 	LoadedScene loaded = loadScene(renderer.options.arguments.values[1], renderer.frame.time);
 	if (!loaded.error.empty()) {
+		std::fprintf(stderr, "reload: %s\n", loaded.error.c_str());
 		exchange.failed = loaded.error;
 		return;
 	}
-	SceneFile next = reloadedFile(std::move(loaded.file), renderer.options);
-	if (!sameSettings(renderer.file.shot, next.shot)) {
-		renderer.frame.change = joinedChange(renderer.frame.change, Change::Cut);
-	}
+	SceneFile next        = reloadedFile(std::move(loaded.file), renderer.options);
+	renderer.frame.change = joinedChange(renderer.frame.change, Change::Cut);
 	sceneTaken(renderer, std::move(next));
 	exchange.failed = {};
 }

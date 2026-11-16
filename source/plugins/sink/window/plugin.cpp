@@ -25,6 +25,7 @@ struct Viewing {
 	Exchange& exchange;
 	const Camera& camera;
 	std::string name;
+	std::string path;
 };
 
 std::string timesText(const Published& frame) {
@@ -125,6 +126,36 @@ Flight flownBy(const Flight& flight, const WindowInput& input, double seconds, c
 	return next;
 }
 
+struct Watch {
+	std::filesystem::file_time_type written;
+	std::chrono::steady_clock::time_point checked;
+	bool changed;
+};
+
+Watch startedWatch(const std::string& path, std::chrono::steady_clock::time_point now) {
+	std::error_code error;
+
+	const Watch watch = {
+		.written = std::filesystem::last_write_time(path, error),
+		.checked = now,
+		.changed = false,
+	};
+
+	return watch;
+}
+
+Watch watchedOn(const Watch& watch, const std::string& path, std::chrono::steady_clock::time_point now) {
+	if (now - watch.checked < std::chrono::milliseconds(500)) {
+		return Watch { .written = watch.written, .checked = watch.checked, .changed = false };
+	}
+	std::error_code error;
+	const std::filesystem::file_time_type written = std::filesystem::last_write_time(path, error);
+	if (error) {
+		return Watch { .written = watch.written, .checked = now, .changed = false };
+	}
+	return Watch { .written = written, .checked = now, .changed = written != watch.written };
+}
+
 void viewedLoop(const Viewing& viewing) {
 	Camera shown                               = viewing.camera;
 	std::uint64_t seen                         = 0;
@@ -132,6 +163,7 @@ void viewedLoop(const Viewing& viewing) {
 	Pace pace                                  = freshPace(last);
 	Playback playback                          = startedPlayback();
 	Flight flight                              = groundedFlight(viewing.camera);
+	Watch watch                                = startedWatch(viewing.path, last);
 	while (true) {
 		const WindowInput input                         = polledInput(viewing.window, 16);
 		const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
@@ -140,7 +172,8 @@ void viewedLoop(const Viewing& viewing) {
 		if (input.closed) {
 			return;
 		}
-		if (input.reload) {
+		watch = watchedOn(watch, viewing.path, now);
+		if (input.reload || watch.changed) {
 			requestedReload(viewing.exchange);
 		}
 		if (viewing.exchange.playing) {
@@ -243,6 +276,7 @@ int windowHosted(Renderer& renderer) {
 		.exchange = exchange,
 		.camera   = camera,
 		.name     = name,
+		.path     = options.arguments.values[1],
 	};
 
 	std::thread drawing = startedDrawing(renderer);
