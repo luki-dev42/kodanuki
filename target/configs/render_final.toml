@@ -2,6 +2,7 @@
 width = 1920
 height = 1200
 tolerance = 2
+margin = 0.5
 threads = 12
 faces = true
 smooth_glass = "exact"

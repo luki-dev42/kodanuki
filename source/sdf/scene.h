@@ -571,6 +571,12 @@ struct Render {
 	 */
 	float tolerance;
 	/**
+	 * The share of the stopping's own count a pixel draws: 1 for all of
+	 * it, less for a faster frame with more pixels left over the
+	 * tolerance.
+	 */
+	float margin;
+	/**
 	 * The seed of every random number.
 	 */
 	int seed;

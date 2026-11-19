@@ -217,7 +217,7 @@ int confidenceAllotted(const Stopping& stopping, const CountQuery& query) {
 		return stopping.samples;
 	}
 	const double wanted  = around.sum / around.count * splitNoise(stopping, query);
-	const double batches = std::ceil(std::sqrt(wanted * stopping.samples) / stopping.batch);
+	const double batches = std::ceil(stopping.margin * std::sqrt(wanted * stopping.samples) / stopping.batch);
 	if (!(batches * stopping.batch < stopping.samples)) {
 		return stopping.samples;
 	}

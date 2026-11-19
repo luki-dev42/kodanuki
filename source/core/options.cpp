@@ -288,6 +288,10 @@ bool readSetting(Shot& shot, char** argv, int& i) {
 		render.tolerance = std::stof(argv[++i]);
 		return true;
 	}
+	if (flag == "--margin") {
+		render.margin = std::stof(argv[++i]);
+		return true;
+	}
 	if (flag == "--samples") {
 		render.samples = std::stoi(argv[++i]);
 		return true;

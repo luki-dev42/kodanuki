@@ -140,6 +140,11 @@ struct Stopping {
 	 */
 	double tolerance;
 	/**
+	 * The share of its own count the member allots a pixel: 1 for all
+	 * of it.
+	 */
+	double margin;
+	/**
 	 * The grade the noise is judged through.
 	 */
 	Grade grade;

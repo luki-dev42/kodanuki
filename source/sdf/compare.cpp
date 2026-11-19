@@ -118,7 +118,7 @@ bool sameLighting(const Lighting& a, const Lighting& b) {
 }
 
 std::vector<double> renderNumbers(const Render& render) {
-	return { double(render.width), double(render.height), render.tolerance, double(render.seed), render.far, double(render.samples), double(render.batch), double(render.split), double(render.surfaces), double(render.collisions) };
+	return { double(render.width), double(render.height), render.tolerance, render.margin, double(render.seed), render.far, double(render.samples), double(render.batch), double(render.split), double(render.surfaces), double(render.collisions) };
 }
 
 bool sameSettings(const Shot& a, const Shot& b) {

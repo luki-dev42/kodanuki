@@ -180,8 +180,8 @@ std::vector<UseKey> useKeys();
 
 /**
  * Read a command-line setting that overrides the scene's render
- * settings: --size, --seed, --tolerance, --samples, --batch, --surfaces
- * or --collisions.
+ * settings: --size, --seed, --tolerance, --margin, --samples, --batch,
+ * --surfaces or --collisions.
  *
  * Where the flag at i is one, its values are read into the shot and i
  * moves to the last of them, and true comes back; otherwise false and

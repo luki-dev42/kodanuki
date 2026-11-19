@@ -204,6 +204,7 @@ void checkOwnTrialUnread() {
 		.samples   = 1024,
 		.batch     = 8,
 		.tolerance = 2,
+		.margin    = 1,
 		.grade     = grade,
 		.split     = 0,
 	};

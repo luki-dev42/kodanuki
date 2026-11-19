@@ -1903,10 +1903,11 @@ bool splitNamed(int split) {
 }
 
 void readRender(Shot& shot, const Fields& fields) {
-	checkFields(fields, { "width", "height", "tolerance", "seed", "far", "samples", "batch", "split", "surfaces", "collisions" });
+	checkFields(fields, { "width", "height", "tolerance", "margin", "seed", "far", "samples", "batch", "split", "surfaces", "collisions" });
 	readInt(fields, "width", shot.render.width);
 	readInt(fields, "height", shot.render.height);
 	readFloat(fields, "tolerance", shot.render.tolerance);
+	readFloat(fields, "margin", shot.render.margin);
 	readInt(fields, "seed", shot.render.seed);
 	readFloat(fields, "far", shot.render.far);
 	readInt(fields, "samples", shot.render.samples);
@@ -1914,6 +1915,9 @@ void readRender(Shot& shot, const Fields& fields) {
 	readInt(fields, "split", shot.render.split);
 	readInt(fields, "surfaces", shot.render.surfaces);
 	readInt(fields, "collisions", shot.render.collisions);
+	if (!(shot.render.margin > 0)) {
+		fail(fields.setting.location, "a render's margin must be above zero");
+	}
 	if (shot.render.surfaces < 1) {
 		fail(fields.setting.location, "a render's surfaces must be at least one");
 	}
@@ -2711,6 +2715,7 @@ Render defaultRender() {
 		.width      = 960,
 		.height     = 600,
 		.tolerance  = 2,
+		.margin     = 1,
 		.seed       = 1,
 		.far        = 1000,
 		.samples    = 0,

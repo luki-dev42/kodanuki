@@ -65,14 +65,14 @@ float confidenceWanted(const Stopping& stopping, const TrialPixel& pixel);
  * its own.
  *
  * n is the mean of what the neighbours' trials want, fewer at an edge or
- * a corner. The count is sqrt(n * ceiling) rounded up to whole batches,
- * at least the trial; it is the ceiling where that reaches the ceiling.
- * A pixel with no neighbour takes the ceiling. n is first scaled by the
+ * a corner. The count is margin * sqrt(n * ceiling) rounded up to whole
+ * batches, at least the trial; it is the ceiling where that reaches the
+ * ceiling. A pixel with no neighbour takes the ceiling. n is first scaled by the
  * noise of a sample at the pixel's split against the trial's: with s
  * the variance of a group's shared part and o that of the rest of a
  * sample, (s k + o) / (s k0 + o) for the split k and the trial's k0.
  *
- * @param stopping The ceiling and the batch.
+ * @param stopping The ceiling, the batch and the margin.
  * @param query The pixel and every trial.
  */
 int confidenceAllotted(const Stopping& stopping, const CountQuery& query);

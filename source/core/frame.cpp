@@ -311,6 +311,7 @@ Stopping frameStopping(const Renderer& renderer) {
 		.samples   = render.samples > 0 ? render.samples : effort.samples,
 		.batch     = batch,
 		.tolerance = double(render.tolerance),
+		.margin    = render.margin > 0 ? double(render.margin) : 1.0,
 		.grade     = shot.grade,
 		.split     = fittedSplit(render.split, batch),
 	};
@@ -401,6 +402,7 @@ Stopping noStopping() {
 		.samples   = 0,
 		.batch     = 1,
 		.tolerance = 0,
+		.margin    = 1,
 		.grade     = grade,
 		.split     = 0,
 	};
