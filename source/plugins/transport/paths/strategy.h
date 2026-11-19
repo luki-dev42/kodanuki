@@ -71,8 +71,8 @@ struct Strategies {
 	 */
 	std::vector<StrategyMember> members;
 	/**
-	 * Light paths traced per sample of each pixel, the count join's
-	 * density is weighed with: 0.125 where the light pass traces, zero
+	 * Light paths per sample of each pixel, the count join's density
+	 * is weighed with: 0.125 where the light pass traces, zero
 	 * where it traces none (no sharp surface may relay a path, or no lamp
 	 * starts paths).
 	 */

@@ -23,6 +23,12 @@ struct Renderer;
 constexpr std::uint32_t chunkPaths = 4096;
 
 /**
+ * The share of the light paths join's density is weighed with that the
+ * light pass traces: the other half costs a frame more than its noise.
+ */
+constexpr double tracedShare = 0.5;
+
+/**
  * What the light pass brought the frame.
  */
 struct CarriedLight {

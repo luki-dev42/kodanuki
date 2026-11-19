@@ -204,8 +204,9 @@ CarriedLight carriedLight(Renderer& renderer) {
 	}
 	const Stopping& stopping  = renderer.drawing.stopping;
 	const std::size_t pixels  = std::size_t(tracing.lens.width) * std::size_t(tracing.lens.height);
-	const std::uint32_t round = chunksFor(tracing.strategies.joinShare, stopping.batch, pixels);
-	const std::uint32_t most  = std::max(round, chunksFor(tracing.strategies.joinShare, stopping.samples, pixels));
+	const double share        = tracing.strategies.joinShare * tracedShare;
+	const std::uint32_t round = chunksFor(share, stopping.batch, pixels);
+	const std::uint32_t most  = std::max(round, chunksFor(share, stopping.samples, pixels));
 	const bool rounds         = inRounds(stopping);
 
 	CarriedLight light = {
