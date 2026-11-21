@@ -36,7 +36,7 @@ void checkUsePlugins() {
 	for (const UseKey& key : useKeys()) {
 		for (const std::string& member : key.members) {
 			const std::string what = "--use " + key.name + "=" + member + " names a plugin of that point";
-			check(key.name == "faces" || key.name == "smooth_glass" || pluginOfKey(key, member), what.c_str());
+			check(key.name == "faces" || key.name == "smooth_glass" || key.name == "glow_balls" || pluginOfKey(key, member), what.c_str());
 		}
 	}
 	const Choices sobol = withUse(defaultChoices(), "sampler=sobol");

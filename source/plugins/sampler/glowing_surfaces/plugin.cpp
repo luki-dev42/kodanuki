@@ -13,8 +13,9 @@ namespace kodanuki {
 constexpr int glowGridDepth = 6;
 
 void glowGridPrepared(Renderer& renderer) {
-	GlowCells gathered                      = gatheredGlowGrid(tracingOf(renderer.drawing.transported.get()).geometry, tracingOf(renderer.drawing.transported.get()).looks, glowGridDepth);
-	glowCellsState(renderer.history.states) = std::move(gathered);
+	const Tracing& tracing                  = tracingOf(renderer.drawing.transported.get());
+	const GlowCells gathered                = gatheredGlowGrid(tracing.geometry, tracing.looks, glowGridDepth);
+	glowCellsState(renderer.history.states) = tracing.sampling.glowBalls ? withGlowBalls(tracing.geometry, tracing.looks, gathered) : gathered;
 }
 
 std::vector<std::string> glowsNeeded() {

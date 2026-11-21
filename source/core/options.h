@@ -74,6 +74,11 @@ struct Choices {
 	 */
 	bool faces;
 	/**
+	 * Whether a glow aim draws toward a ball round each glowing object
+	 * instead of its cells, `--use glow_balls=`.
+	 */
+	bool glowBalls;
+	/**
 	 * Whether region holds a region given by hand.
 	 */
 	bool framed;

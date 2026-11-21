@@ -75,9 +75,16 @@ LensLine lensLineFrom(StrategyMember member, const Tracing& tracing, const Light
 }
 
 Lines noLines() {
+	const GlowWeighing glow = {
+		.assumed = 0,
+		.rest    = 0,
+		.count   = 0,
+	};
+
 	return Lines {
 		.items = {},
 		.count = 0,
+		.glow  = glow,
 	};
 }
 

@@ -134,6 +134,11 @@ struct Glance {
 	 * The registers the surface's patterns run in.
 	 */
 	std::vector<double>& registers;
+	/**
+	 * How the line was weighed (Lines.glow), read where there are glow
+	 * balls.
+	 */
+	const GlowWeighing& glow;
 };
 
 /**
@@ -786,11 +791,16 @@ double weighedDensity(const Tracing& tracing, const Standing& standing, const Ow
  * scatteredFrom() weighs a draw: the direction member's, or past the
  * first vertex, where join or connect counts, the bare material's.
  *
+ * Where it aims at the glow balls or cells, how it was weighed is
+ * written to glow, which a glance of its line reads.
+ *
  * @param tracing What the transport reads.
  * @param standing The path on its vertex and its companions.
  * @param asked The light and the vertex's light numbers.
+ * @param glow The vertex's glow weighing (Lines.glow), written in place
+ *        for an aim at the glows.
  */
-Offer offerOf(const Tracing& tracing, const Standing& standing, const LightAsked& asked);
+Offer offerOf(const Tracing& tracing, const Standing& standing, const LightAsked& asked, GlowWeighing& glow);
 
 /**
  * Scatter: take a Scattering walk's next step, in place: Flying on

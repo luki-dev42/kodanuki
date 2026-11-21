@@ -55,6 +55,7 @@ Sampling chosenSampling(const Choices& choices) {
 	sampling.selection = chosenIn(choices, "sampler/each_lamp_first") ? SamplerMember::EachLampFirst : SamplerMember::ByContribution;
 	sampling.aims      = chosenAims(choices);
 	sampling.emission  = defaultSampling().emission;
+	sampling.glowBalls = choices.glowBalls;
 	return sampling;
 }
 

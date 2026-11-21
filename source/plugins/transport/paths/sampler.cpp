@@ -393,6 +393,7 @@ Sampling coreSampling() {
 		.sky       = &noChartKept(),
 		.glows     = &noGlowsKept(),
 		.mirrors   = &noMirrorsKept(),
+		.glowBalls = false,
 	};
 }
 

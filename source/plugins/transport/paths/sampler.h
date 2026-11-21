@@ -150,6 +150,11 @@ struct Sampling {
 	 * state.
 	 */
 	const MirrorBalls* mirrors;
+	/**
+	 * Whether GlowingSurfaces aims at a ball round each glowing object
+	 * instead of its cells, `--use glow_balls=`.
+	 */
+	bool glowBalls;
 };
 
 /**

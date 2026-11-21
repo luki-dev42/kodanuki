@@ -48,13 +48,16 @@ GlowCells noGlowCells() {
 	};
 
 	return GlowCells {
-		.region  = none,
-		.depth   = 0,
-		.places  = {},
-		.middles = {},
-		.halves  = {},
-		.guesses = {},
-		.running = {},
+		.region      = none,
+		.depth       = 0,
+		.places      = {},
+		.middles     = {},
+		.halves      = {},
+		.guesses     = {},
+		.running     = {},
+		.ballCentres = {},
+		.ballRadii   = {},
+		.ballGuesses = {},
 	};
 }
 
@@ -161,6 +164,18 @@ GlowCells gridOf(const Geometry& geometry, int depth) {
 	return glows;
 }
 
+double objectValue(const Program& program, const math::Vector& point) {
+	thread_local std::vector<double> registers;
+
+	const Inputs<double> inputs = {
+		.arguments = nullptr,
+		.p         = { point.x, point.y, point.z },
+		.n         = { 0, 0, 0 },
+	};
+
+	return evaluateKept(wholeSteps(program), inputs, registers);
+}
+
 void keepGridCell(const GridGathering& gathering, std::uint32_t list, const std::uint32_t* place) {
 	const CellBox box         = gridBox(gridOf(gathering.geometry, gathering.depth), place);
 	const double point[3]     = { box.middle.x, box.middle.y, box.middle.z };
@@ -245,6 +260,98 @@ GlowCells keptCells(const GlowCells& empty, const std::vector<FoundCell>& found)
 		glows.halves.push_back(cell.half);
 		glows.guesses.push_back(cell.guess);
 		glows.running.push_back(total);
+	}
+	return glows;
+}
+
+struct FieldBox {
+	math::Vector lower;
+	math::Vector upper;
+};
+
+constexpr int ballLevels = 10;
+
+constexpr std::size_t ballMostBoxes = 100000;
+
+std::vector<FieldBox> keptBoxes(const Program& program, const std::vector<FieldBox>& boxes) {
+	std::vector<FieldBox> kept;
+	for (const FieldBox& box : boxes) {
+		const math::Vector middle = (box.lower + box.upper) * 0.5;
+		if (std::abs(objectValue(program, middle)) <= 0.5 * math::length(box.upper - box.lower)) {
+			kept.push_back(box);
+		}
+	}
+	return kept;
+}
+
+std::vector<FieldBox> halvedBoxes(const std::vector<FieldBox>& boxes) {
+	std::vector<FieldBox> halved;
+	for (const FieldBox& box : boxes) {
+		const math::Vector middle = (box.lower + box.upper) * 0.5;
+		for (int k = 0; k < 8; ++k) {
+			const FieldBox part = {
+				.lower = { k & 1 ? middle.x : box.lower.x, k & 2 ? middle.y : box.lower.y, k & 4 ? middle.z : box.lower.z },
+				.upper = { k & 1 ? box.upper.x : middle.x, k & 2 ? box.upper.y : middle.y, k & 4 ? box.upper.z : middle.z },
+			};
+
+			halved.push_back(part);
+		}
+	}
+	return halved;
+}
+
+std::vector<FieldBox> objectBoxes(const Geometry& geometry, std::uint32_t object) {
+	const Region& region   = treeOf(geometry).region;
+	const Program& program = geometry.scene.objectPrograms[object];
+	const math::Vector low = { region.lower[0], region.lower[1], region.lower[2] };
+
+	const FieldBox whole = {
+		.lower = low,
+		.upper = low + math::Vector { region.size[0], region.size[1], region.size[2] },
+	};
+
+	std::vector<FieldBox> boxes = { whole };
+	for (int level = 0; level < ballLevels; ++level) {
+		const std::vector<FieldBox> kept = keptBoxes(program, boxes);
+		if (kept.size() * 8 > ballMostBoxes) {
+			return kept;
+		}
+		boxes = halvedBoxes(kept);
+	}
+	return keptBoxes(program, boxes);
+}
+
+math::Vector boxesMiddle(const std::vector<FieldBox>& boxes) {
+	math::Vector lower = { 1e300, 1e300, 1e300 };
+	math::Vector upper = { -1e300, -1e300, -1e300 };
+	for (const FieldBox& box : boxes) {
+		lower = { std::min(lower.x, box.lower.x), std::min(lower.y, box.lower.y), std::min(lower.z, box.lower.z) };
+		upper = { std::max(upper.x, box.upper.x), std::max(upper.y, box.upper.y), std::max(upper.z, box.upper.z) };
+	}
+	return (lower + upper) * 0.5;
+}
+
+double boxesReach(const std::vector<FieldBox>& boxes, const math::Vector& centre) {
+	double radius = 0;
+	for (const FieldBox& box : boxes) {
+		const math::Vector far = { std::max(std::abs(box.lower.x - centre.x), std::abs(box.upper.x - centre.x)), std::max(std::abs(box.lower.y - centre.y), std::abs(box.upper.y - centre.y)), std::max(std::abs(box.lower.z - centre.z), std::abs(box.upper.z - centre.z)) };
+		radius                 = std::max(radius, math::length(far));
+	}
+	return radius;
+}
+
+GlowCells withGlowBalls(const Geometry& geometry, const Looks& looks, const GlowCells& cells) {
+	const GlowSources sources = glowSources(geometry, looks);
+	GlowCells glows           = cells;
+	for (std::uint32_t object = 0; object < sources.objects.size(); ++object) {
+		const std::vector<FieldBox> boxes = sources.objects[object] > 0 ? objectBoxes(geometry, object) : std::vector<FieldBox> {};
+		if (boxes.empty()) {
+			continue;
+		}
+		const math::Vector centre = boxesMiddle(boxes);
+		glows.ballCentres.push_back(centre);
+		glows.ballRadii.push_back(boxesReach(boxes, centre));
+		glows.ballGuesses.push_back(sources.objects[object]);
 	}
 	return glows;
 }
@@ -375,7 +482,88 @@ LightAim missedGlow() {
 	};
 }
 
+struct BallCone {
+	double fall;
+	double distance;
+};
+
+BallCone ballCone(const GlowCells& glows, std::size_t ball, const math::Vector& from) {
+	const double distance = math::length(glows.ballCentres[ball] - from);
+	const double radius   = glows.ballRadii[ball];
+	return BallCone {
+		.fall     = distance > radius ? coneFall(radius, distance) : 0,
+		.distance = distance,
+	};
+}
+
+double glowNear(const GlowCells& glows, const math::Vector& from) {
+	double total = 0;
+	for (std::size_t ball = 0; ball < glows.ballCentres.size(); ++ball) {
+		total += glows.ballGuesses[ball] * 2 * math::pi * ballCone(glows, ball, from).fall;
+	}
+	return total;
+}
+
+std::size_t ballHolding(const GlowCells& glows, const math::Vector& place) {
+	for (std::size_t ball = 0; ball < glows.ballCentres.size(); ++ball) {
+		if (math::length(place - glows.ballCentres[ball]) <= glows.ballRadii[ball]) {
+			return ball;
+		}
+	}
+	return glows.ballCentres.size();
+}
+
+double ballDensity(const GlowCells& glows, std::size_t ball, const math::Vector& from) {
+	if (ball >= glows.ballCentres.size() || !(ballCone(glows, ball, from).fall > 0)) {
+		return 0;
+	}
+	const double near = glowNear(glows, from);
+	return near > 0 ? glows.ballGuesses[ball] / near : 0;
+}
+
+LightAim ballAim(const GlowCells& glows, const GlowDraw& draw) {
+	const double near = glowNear(glows, draw.from);
+	if (!(near > 0)) {
+		return missedGlow();
+	}
+	const double target = draw.part * near;
+	double running      = 0;
+	std::size_t ball    = 0;
+	for (std::size_t k = 0; k < glows.ballCentres.size(); ++k) {
+		const double weight = glows.ballGuesses[k] * 2 * math::pi * ballCone(glows, k, draw.from).fall;
+		if (weight > 0) {
+			ball = k;
+			running += weight;
+			if (target < running) {
+				break;
+			}
+		}
+	}
+	const BallCone cone       = ballCone(glows, ball, draw.from);
+	const math::Vector offset = glows.ballCentres[ball] - draw.from;
+	const math::Vector toward = inCone(offset / cone.distance, cone.fall, draw.pair);
+	const double along        = math::dot(toward, offset);
+	const double radius       = glows.ballRadii[ball];
+	const double across       = along * along - (cone.distance * cone.distance - radius * radius);
+	const double density      = glows.ballGuesses[ball] / near;
+	if (!(cone.fall > 0) || !(across >= 0) || !(density > 0)) {
+		return missedGlow();
+	}
+	return LightAim {
+		.found    = true,
+		.toward   = toward,
+		.distance = along + std::sqrt(across),
+		.radiance = flatSpectrum(glows.ballGuesses[ball] / density),
+		.raw      = flatSpectrum(glows.ballGuesses[ball] / density),
+		.density  = density,
+		.cell     = std::uint32_t(glows.places.size() + ball),
+	};
+}
+
 LightAim glowAim(const GlowCells& glows, const GlowDraw& draw) {
+	if (!glows.ballCentres.empty()) {
+		return ballAim(glows, draw);
+	}
 	const std::uint32_t cell  = drawnCell(glows, draw.part);
 	const math::Vector offset = glows.middles[cell] - draw.from;
 	const double distance     = math::length(offset);
@@ -402,8 +590,21 @@ LightAim glowAim(const GlowCells& glows, const GlowDraw& draw) {
 }
 
 double glowDensity(const GlowCells& glows, const GlowSeen& seen) {
+	if (!glows.ballCentres.empty()) {
+		return ballDensity(glows, ballHolding(glows, seen.place), seen.from);
+	}
 	const std::uint32_t cell = cellAt(glows, seen.place);
 	return cell == noCell ? 0 : cellDensity(glows, cell, seen.from, seen.toward);
+}
+
+GlowCount glowMixedCount(const GlowCells& glows, std::uint32_t cell, const GlowSeen& seen) {
+	const std::size_t cells = glows.places.size();
+	const bool in           = cell < cells ? cellAt(glows, seen.place) == cell : ballHolding(glows, seen.place) == cell - cells;
+	return GlowCount {
+		.in      = in,
+		.guess   = cell < cells ? glows.guesses[cell] : glows.ballGuesses[cell - cells],
+		.density = in ? glowDensity(glows, seen) : 0,
+	};
 }
 
 double glowCounted(const GlowCells& glows, std::uint32_t cell, const math::Vector& place) {

@@ -52,6 +52,42 @@ struct GlowCells {
 	 * and including each cell.
 	 */
 	std::vector<double> running;
+	/**
+	 * The middle of each glow ball, one per glowing object, `--use
+	 * glow_balls=`; none where they are off. Where there are any, a glow
+	 * aim draws a ball by its guess times the solid angle of its cone, then
+	 * a direction evenly inside the cone, and the cells are not drawn.
+	 */
+	std::vector<math::Vector> ballCentres;
+	/**
+	 * Each ball's radius: it reaches the farthest corner of the boxes its
+	 * object's surface passes through.
+	 */
+	std::vector<double> ballRadii;
+	/**
+	 * Each ball's guess of brightness: its object's brightest glow.
+	 */
+	std::vector<double> ballGuesses;
+};
+
+/**
+ * What a glance at a glow ball counts: whether the place lies in the
+ * ball aimed at, the ball's guess and the density of the balls at the
+ * place.
+ */
+struct GlowCount {
+	/**
+	 * Whether the place lies in what was aimed at.
+	 */
+	bool in;
+	/**
+	 * The guess of what was aimed at.
+	 */
+	double guess;
+	/**
+	 * glowDensity() at the place, zero where it lies elsewhere.
+	 */
+	double density;
 };
 
 /**
@@ -108,6 +144,19 @@ GlowCells noGlowCells();
 GlowCells gatheredGlowGrid(const Geometry& geometry, const Looks& looks, int depth);
 
 /**
+ * Return the cells with a glow ball around each glowing object: the
+ * tree's region halved ten times, or until a level would keep more than
+ * 100000 boxes, keeping each box whose middle the object's field puts
+ * within half the box's diagonal; the ball is round the middle of the
+ * kept boxes' bounds and reaches their farthest corner.
+ *
+ * @param geometry The geometry: the tree and the scene's objects.
+ * @param looks The scene's looks: its materials and coats.
+ * @param cells The cells gatheredGlowGrid() found.
+ */
+GlowCells withGlowBalls(const Geometry& geometry, const Looks& looks, const GlowCells& cells);
+
+/**
  * Draw a cell by its weight with the part, then a direction evenly
  * inside the cone of the ball holding it with the pair.
  *
@@ -140,6 +189,18 @@ double glowDensity(const GlowCells& glows, const GlowSeen& seen);
  * @param place Where the glance met a surface.
  */
 double glowCounted(const GlowCells& glows, std::uint32_t cell, const math::Vector& place);
+
+/**
+ * Return what a glance at a cell or ball counts where there are glow
+ * balls: whether the place lies in the cell or ball aimed at (a ball
+ * holds the places it is the first ball to hold), its guess, and
+ * glowDensity().
+ *
+ * @param glows The cells and balls.
+ * @param cell The cell aimed at, or the cell count plus the ball.
+ * @param seen The ray and where it met the surface.
+ */
+GlowCount glowMixedCount(const GlowCells& glows, std::uint32_t cell, const GlowSeen& seen);
 
 /**
  * Return the glow cells the plugin keeps among the kept states, opened empty

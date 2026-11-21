@@ -351,6 +351,12 @@ Sampling glowSampling() {
 	return sampling;
 }
 
+Sampling glowBallSampling() {
+	Sampling sampling  = glowSampling();
+	sampling.glowBalls = true;
+	return sampling;
+}
+
 Sampling skySampling() {
 	Sampling sampling = coreSampling();
 	sampling.aims     = { SamplerMember::Lamps, SamplerMember::SkyMap };
@@ -1078,6 +1084,15 @@ void checkSampler() {
 		.preparations = testPreparations({ "sampler/glowing_surfaces" }),
 	};
 
+	const Pairing glowBalls = {
+		.what         = "GlowingSurfaces by balls",
+		.text         = glowText(),
+		.off          = coreChosen(),
+		.on           = withSampling(glowBallSampling()),
+		.beforehand   = none,
+		.preparations = testPreparations({ "sampler/glowing_surfaces" }),
+	};
+
 	const Pairing guide = {
 		.what         = "HighlightGuide",
 		.text         = guideText(),
@@ -1114,7 +1129,7 @@ void checkSampler() {
 		.preparations = testPreparations({ "sampler/sky_map" }),
 	};
 
-	for (const Pairing& pairing : { sobol, eachLamp, skyMap, featuredSky, paintedAim, paintedSky, glowGrid, guide }) {
+	for (const Pairing& pairing : { sobol, eachLamp, skyMap, featuredSky, paintedAim, paintedSky, glowGrid, glowBalls, guide }) {
 		checkPairing(pairing);
 	}
 	checkStrategyPairings();

@@ -16,7 +16,7 @@ BINARIES = ROOT / 'bin' if PACKED else OUTPUT
 VERSION = '0.0.3'
 USAGE = 'usage: workflow.py test|render|viewer|export|clean scene.sdf config.toml'
 NUMBERS = ('tolerance', 'margin', 'samples', 'batch', 'split', 'surfaces', 'collisions', 'seed', 'threads')
-SETTINGS = ('width', 'height', 'faces', 'smooth_glass') + NUMBERS
+SETTINGS = ('width', 'height', 'faces', 'smooth_glass', 'glow_balls') + NUMBERS
 VIEWER = ('internal_width', 'internal_height')
 KEYS = {
     'geometry': ('tree', 'sphere_trace'),
@@ -97,7 +97,8 @@ def uses(plugins, keys):
 def switches(settings):
     faces = [] if settings.get('faces', True) else ['--use', 'faces=off']
     glass = settings.get('smooth_glass', 'exact')
-    return faces + ([] if glass == 'exact' else ['--use', 'smooth_glass=' + glass])
+    balls = ['--use', 'glow_balls=on'] if settings.get('glow_balls', False) else []
+    return faces + ([] if glass == 'exact' else ['--use', 'smooth_glass=' + glass]) + balls
 
 
 def flags(config, keys):

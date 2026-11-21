@@ -170,6 +170,25 @@ struct Tracing {
 };
 
 /**
+ * How an aim at the glow balls was weighed, so a glance can weigh it
+ * again by the density of the balls at the place it meets.
+ */
+struct GlowWeighing {
+	/**
+	 * The density the aim was weighed with.
+	 */
+	double assumed;
+	/**
+	 * The other techniques' densities in the weight, squared and summed.
+	 */
+	double rest;
+	/**
+	 * The aim's count.
+	 */
+	double count;
+};
+
+/**
  * A line to a light and what it brings if nothing blocks it.
  */
 struct Line {
@@ -196,6 +215,11 @@ struct Lines {
 	 * How many.
 	 */
 	std::uint32_t count;
+	/**
+	 * How the line at the glow balls was weighed, where the vertex asks
+	 * for one: a vertex aims at the glows once.
+	 */
+	GlowWeighing glow;
 };
 
 /**

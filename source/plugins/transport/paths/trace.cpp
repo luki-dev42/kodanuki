@@ -697,7 +697,7 @@ OwnDensity ownToward(const AimedLight& aimed) {
 	};
 }
 
-double aimWeight(const Tracing& tracing, const Standing& standing, const AimedLight& aimed) {
+Densities aimedDensities(const Tracing& tracing, const Standing& standing, const AimedLight& aimed) {
 	const Path& path     = standing.path;
 	const Vertex& vertex = path.vertex;
 	const LightAim& aim  = aimed.aim;
@@ -721,8 +721,7 @@ double aimWeight(const Tracing& tracing, const Standing& standing, const AimedLi
 		.counts   = standing.counts,
 	};
 
-	const Densities densities = aimDensities(ending);
-	return weightOf(densities, densities.aim);
+	return aimDensities(ending);
 }
 
 Spectrum4 aimedSky(const Tracing& tracing, const AimedLight& aimed, const Path& path) {
@@ -780,7 +779,7 @@ BsdfAnswer offerAnswer(const Tracing& tracing, const Standing& standing, const L
 	return answer;
 }
 
-Offer offerOf(const Tracing& tracing, const Standing& standing, const LightAsked& asked) {
+Offer offerOf(const Tracing& tracing, const Standing& standing, const LightAsked& asked, GlowWeighing& glow) {
 	const std::uint32_t light = asked.light;
 	const Path& path          = standing.path;
 	const math::Vector open   = openSide(path);
@@ -819,10 +818,16 @@ Offer offerOf(const Tracing& tracing, const Standing& standing, const LightAsked
 		.answer = answer,
 	};
 
-	const Spectrum4 arrive = aimedArrival(tracing, aimed, standing);
+	const Spectrum4 arrive    = aimedArrival(tracing, aimed, standing);
+	const Densities densities = aimedDensities(tracing, standing, aimed);
 
+	if (aim.cell != noCell) {
+		glow.assumed = aim.density;
+		glow.rest    = densities.meet * densities.meet + densities.join * densities.join + densities.connections;
+		glow.count   = standing.counts.aim;
+	}
 	return Offer {
-		.radiance = path.throughput * answer.value * arrive * (facing * aimWeight(tracing, standing, aimed)),
+		.radiance = path.throughput * answer.value * arrive * (facing * weightOf(densities, densities.aim)),
 		.shadow   = shadowOf(path, open, aim),
 	};
 }
@@ -876,6 +881,27 @@ Colour glowShadedAt(const Tracing& tracing, const Glance& glance) {
 	return wornAt(tracing.features, wear).glow;
 }
 
+bool mixedGlows(const Tracing& tracing) {
+	return !tracing.sampling.glows->ballCentres.empty();
+}
+
+double mixedCounted(const Tracing& tracing, const Glance& glance) {
+	const GlowSeen seen = {
+		.from   = glance.path.vertex.point,
+		.toward = math::Vector(glance.shadow.direction),
+		.place  = glance.hit.point,
+	};
+
+	const GlowCount count = glowMixedCount(*tracing.sampling.glows, glance.shadow.cell, seen);
+	if (!count.in || !(glance.glow.assumed > 0)) {
+		return 0;
+	}
+	const double mixed  = count.density > 0 ? count.density : glance.glow.assumed;
+	const double before = glance.glow.assumed * glance.glow.count;
+	const double after  = mixed * glance.glow.count;
+	return mixed / (count.guess * glance.glow.assumed) * (before * before + glance.glow.rest) / (after * after + glance.glow.rest);
+}
+
 Spectrum4 glancedGlow(const Tracing& tracing, const Glance& glance) {
 	if (glance.hit.kind == HitKind::Missed) {
 		return flatSpectrum(0);
@@ -886,7 +912,7 @@ Spectrum4 glancedGlow(const Tracing& tracing, const Glance& glance) {
 		.leaf = glance.hit.leaf,
 	};
 
-	const double counted = glanceCounted(tracing.sampling, glance.shadow.cell, glance.hit.point);
+	const double counted = mixedGlows(tracing) ? mixedCounted(tracing, glance) : glanceCounted(tracing.sampling, glance.shadow.cell, glance.hit.point);
 	if (!(counted > 0) || !glowEnds(tracing.features, ending)) {
 		return flatSpectrum(0);
 	}
@@ -923,7 +949,7 @@ void aimedFrom(const Tracing& tracing, const Standing& standing, Lines& lines) {
 			.incoming = { 0, 0, 0 },
 		};
 
-		const Offer offer = offerOf(tracing, standing, asked);
+		const Offer offer = offerOf(tracing, standing, asked, lines.glow);
 
 		const SelectionQuery selection = {
 			.light  = light,
@@ -1197,6 +1223,7 @@ Spectrum4 glancedLight(const Tracing& tracing, const Walk& walk, const Answer& a
 		.shadow    = line.shadow,
 		.hit       = answer.hit,
 		.registers = answer.registers,
+		.glow      = walk.lines.glow,
 	};
 
 	return line.radiance * glancedGlow(tracing, glance);

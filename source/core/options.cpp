@@ -59,6 +59,7 @@ std::vector<UseKey> settingKeys() {
 	return {
 		useKey("faces", UseForm::One, { "on", "off" }, "whether the tree derives exact faces in its cells"),
 		useKey("smooth_glass", UseForm::One, { "exact", "lobe" }, "glass of roughness 0: an exact mirror and passage, or the narrowest lobe"),
+		useKey("glow_balls", UseForm::One, { "off", "on" }, "whether a glow aim draws toward a ball round each glowing object instead of its cells"),
 	};
 }
 
@@ -126,6 +127,7 @@ Choices defaultChoices() {
 		.owned       = defaultOwned(),
 		.smoothGlass = "exact",
 		.faces       = true,
+		.glowBalls   = false,
 		.framed      = false,
 		.region      = none,
 		.least       = 0,
@@ -233,6 +235,10 @@ std::string* singleChoice(Choices& choices, const std::string& name) {
 void readSettingUse(Choices& choices, const std::string& name, const std::string& member) {
 	if (name == "faces") {
 		choices.faces = member == "on";
+		return;
+	}
+	if (name == "glow_balls") {
+		choices.glowBalls = member == "on";
 		return;
 	}
 	choices.smoothGlass = member;

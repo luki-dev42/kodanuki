@@ -6,6 +6,7 @@ margin = 0.5
 threads = 12
 faces = true
 smooth_glass = "exact"
+glow_balls = true
 
 [plugins]
 "backend/cpu" = true
