@@ -212,7 +212,7 @@ double meanThrough(const Cloudscape& scape, bool exact) {
 
 void checkClouds() {
 	const SceneFile file = sceneOrExit(writeScene("clouds", R"(
-		function ball(r) {
+		surface ball(r) {
 			return length(p) - r;
 		}
 

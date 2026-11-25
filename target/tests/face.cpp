@@ -82,7 +82,7 @@ bool isPlane(const Quadric& quadric) {
 
 void checkBoxCorner() {
 	const Scene scene = sceneOrExit(writeScene("corner", R"(
-		function box(size, r) {
+		surface box(size, r) {
 			let q = abs(p) - size / 2 + r;
 			return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0) - r;
 		}
@@ -203,7 +203,7 @@ void checkTables(const char* path) {
 
 const Scene& sphereScene() {
 	static const Scene scene = sceneOrExit(writeScene("sphere", R"(
-		function sphere(r) {
+		surface sphere(r) {
 			return length(p) - r;
 		}
 
@@ -216,7 +216,7 @@ const Scene& sphereScene() {
 
 const Scene& torusScene() {
 	static const Scene scene = sceneOrExit(writeScene("ring", R"(
-		function torus(big, small) {
+		surface torus(big, small) {
 			return length([length(p.xy) - big, p.z]) - small;
 		}
 
@@ -273,7 +273,7 @@ double unitValue(const Program& program, const Box& box, const Point& u) {
 
 void checkTaylor() {
 	const Scene scene = sceneOrExit(writeScene("torus", R"(
-		function torus(big, small) {
+		surface torus(big, small) {
 			return length([length(p.xy) - big, p.z]) - small;
 		}
 
@@ -332,7 +332,7 @@ double programAtPoint3(const Program& program, const Point& p) {
 
 void checkStacked() {
 	const Scene scene = sceneOrExit(writeScene("stacked", R"(
-		function box(size) {
+		surface box(size) {
 			let q = abs(p) - size / 2;
 			return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);
 		}
@@ -381,7 +381,7 @@ void checkSmoothCell(const Scene& scene, const Point& p) {
 
 void checkSmoothJoin() {
 	const Scene scene = sceneOrExit(writeScene("blend", R"(
-		function sphere(r) {
+		surface sphere(r) {
 			return length(p) - r;
 		}
 
@@ -399,7 +399,7 @@ void checkSmoothJoin() {
 
 void checkRoundedCorner() {
 	const Scene scene = sceneOrExit(writeScene("rounded", R"(
-		function box(size, r) {
+		surface box(size, r) {
 			let q = abs(p) - size / 2 + r;
 			return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0) - r;
 		}
@@ -432,7 +432,7 @@ double ringValue(const Ring& ring, const Box& box, const Point& p) {
 }
 
 int ringDisagreements(const char* statement, const Box& box) {
-	const std::string functions = "function torus(big, small) {\n\treturn length([length(p.xy) - big, p.z]) - small;\n}\n\nfunction box(size) {\n\tlet q = abs(p) - size / 2;\n\treturn length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);\n}\n\n";
+	const std::string functions = "surface torus(big, small) {\n\treturn length([length(p.xy) - big, p.z]) - small;\n}\n\nsurface box(size) {\n\tlet q = abs(p) - size / 2;\n\treturn length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);\n}\n\n";
 	const std::string text      = functions + statement + "\n";
 	const Scene scene           = sceneOrExit(writeScene("ring", text.c_str())).scene;
 

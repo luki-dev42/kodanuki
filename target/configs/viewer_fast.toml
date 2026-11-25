@@ -1,13 +1,15 @@
 [settings]
-width = 1920
-height = 1200
+width = 960
+height = 600
 threads = 12
+margin = 0.2
 faces = true
 smooth_glass = "exact"
+glow_balls = true
 
 [viewer]
-internal_width = 480
-internal_height = 300
+internal_width = 960
+internal_height = 600
 
 [plugins]
 "backend/cpu" = true
@@ -34,7 +36,7 @@ internal_height = 300
 "observer/progress" = true
 "reconstruction/atrous" = false
 "reconstruction/mean" = true
-"reconstruction/temporal" = false
+"reconstruction/temporal" = true
 "reconstruction/upsample" = false
 "reconstruction/upscale" = false
 "sampler/each_lamp_first" = true
@@ -50,5 +52,5 @@ internal_height = 300
 "source/scene" = true
 "stopping/confidence_interval" = true
 "stopping/fixed_count" = false
-"strategy/join" = false
+"strategy/join" = true
 "transport/paths" = true

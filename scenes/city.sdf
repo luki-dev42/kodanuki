@@ -111,7 +111,7 @@ let CLOTHES = [
 	matte([0.30, 0.20, 0.35]),
 ];
 
-function upright(base, span) {
+surface upright(base, span) {
 	return clamp((p.z - base) / span, 0, 1);
 }
 
@@ -148,30 +148,30 @@ shape choose(weights) {
 	let picked = min(index, count(weights) - 1);
 }
 
-function grid(size, counts, steps) {
+surface grid(size, counts, steps) {
 	let i = clamp(floor(p.x / steps.x + 0.5), 0, counts.x - 1);
 	let k = clamp(floor(p.z / steps.z + 0.5), 0, counts.z - 1);
 	let q = abs(p - [i * steps.x, 0, k * steps.z]) - size / 2;
 	return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);
 }
 
-function posts(height, radius, number, step) {
+surface posts(height, radius, number, step) {
 	let k = clamp(floor(p.y / step + 0.5), 0, number - 1);
 	let d = abs([length([p.x, p.y - k * step]), p.z]) - [radius, height / 2];
 	return min(max(d.x, d.y), 0) + length(max(d, 0));
 }
 
-function rod(height, radius) {
+surface rod(height, radius) {
 	let half = max(height - radius * 2, 0) * 0.5;
 	return length([p.x, p.y, p.z - clamp(p.z, -half, half)]) - radius;
 }
 
-function tube(height, radius, thickness) {
+surface tube(height, radius, thickness) {
 	let d = abs([abs(length(p.xy) - radius) - thickness * 0.5, p.z]) - [0, height * 0.5];
 	return min(max(d.x, d.y), 0) + length(max(d, 0));
 }
 
-function spire(height, base) {
+surface spire(height, base) {
 	let wide  = base * (1 - clamp(p.z / height + 0.5, 0, 1));
 	let wedge = 2 * pi / 8;
 	let reach = p.x;

@@ -447,7 +447,7 @@ void checkPhase() {
 }
 
 const char* coatedText = R"(
-	function sphere(r) {
+	surface sphere(r) {
 		return length(p) - r;
 	}
 

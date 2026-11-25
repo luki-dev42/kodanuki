@@ -399,14 +399,42 @@ void parseArguments(Parser& parser, Expression& call) {
 	} while (continues(parser, ")"));
 }
 
+Expression parseLoopSource(Parser& parser);
+
+void parseFilter(Parser& parser, Expression& comprehension) {
+	if (isName(peekToken(parser, 0), "if")) {
+		parser.at += 1;
+		comprehension.text = "if";
+		comprehension.items.push_back(parseExpression(parser));
+	}
+}
+
+Expression parseComprehension(Parser& parser, const Expression& element) {
+	Expression comprehension = makeExpression(ExpressionKind::Comprehension, element.location, "");
+	comprehension.items      = { element };
+	expectWord(parser, "for");
+	do {
+		comprehension.names.push_back(expectName(parser));
+		expectWord(parser, "in");
+		comprehension.items.push_back(parseLoopSource(parser));
+	} while (accept(parser, ","));
+	parseFilter(parser, comprehension);
+	expect(parser, "]");
+	return comprehension;
+}
+
 Expression parseList(Parser& parser, const Location& location) {
 	Expression list = makeExpression(ExpressionKind::List, location, "");
 	if (accept(parser, "]")) {
 		return list;
 	}
-	do {
+	list.items.push_back(parseExpression(parser));
+	if (isName(peekToken(parser, 0), "for")) {
+		return parseComprehension(parser, list.items[0]);
+	}
+	while (continues(parser, "]")) {
 		list.items.push_back(parseExpression(parser));
-	} while (continues(parser, "]"));
+	}
 	return list;
 }
 
@@ -715,11 +743,18 @@ Statement parseCall(Parser& parser, const Location& location) {
 	return call;
 }
 
+StatementKind definitionKind(const std::string& word) {
+	if (word == "surface") {
+		return StatementKind::Surface;
+	}
+	return word == "shape" ? StatementKind::Shape : StatementKind::Function;
+}
+
 std::optional<Statement> parseKeyword(Parser& parser) {
 	const Token& token                          = peekToken(parser, 0);
 	const Location location                     = token.location;
 	const std::string word                      = token.kind == TokenKind::Name ? token.text : "";
-	static const std::set<std::string> keywords = { "import", "let", "for", "if", "return", "function", "shape", "with" };
+	static const std::set<std::string> keywords = { "import", "let", "for", "if", "return", "surface", "shape", "function", "with" };
 	if (!keywords.contains(word)) {
 		return std::nullopt;
 	}
@@ -742,7 +777,7 @@ std::optional<Statement> parseKeyword(Parser& parser) {
 	if (word == "with") {
 		return parsePlace(parser, location, true);
 	}
-	return parseDefinition(parser, word == "function" ? StatementKind::Function : StatementKind::Shape, location);
+	return parseDefinition(parser, definitionKind(word), location);
 }
 
 Statement parseStatement(Parser& parser) {

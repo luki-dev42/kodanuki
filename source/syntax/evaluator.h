@@ -34,7 +34,7 @@ enum class ValueKind : std::uint8_t {
 	 */
 	Material,
 	/**
-	 * A call of a function, to be emitted as a shape or read as a
+	 * A call of a surface, to be emitted as a shape or read as a
 	 * pattern.
 	 */
 	Pattern,
@@ -80,12 +80,12 @@ struct Value {
 };
 
 /**
- * A call of a function kept to be compiled later: as a shape's leaf, a
+ * A call of a surface kept to be compiled later: as a shape's leaf, a
  * ramp's pattern or a coat's mask.
  */
 struct Pattern {
 	/**
-	 * The function's definition.
+	 * The surface's definition.
 	 */
 	const Statement* function;
 	/**
@@ -112,7 +112,7 @@ struct Pattern {
 using Scope = std::unordered_map<std::string, Value>;
 
 /**
- * A function being compiled into a program of steps.
+ * A surface being compiled into a program of steps.
  */
 struct Compiler {
 	/**
@@ -124,21 +124,13 @@ struct Compiler {
 	 */
 	std::map<double, std::uint32_t> constants;
 	/**
-	 * The point the function reads, as a list of three registers.
+	 * The point the surface reads, as a list of three registers.
 	 */
 	Value point;
 	/**
 	 * The surface normal a pattern reads, as a list of three registers.
 	 */
 	Value normal;
-	/**
-	 * Whether the function has returned.
-	 */
-	bool returned;
-	/**
-	 * What it returned.
-	 */
-	Value result;
 };
 
 /**
@@ -283,7 +275,7 @@ struct Evaluator {
 	 */
 	std::set<std::string> imported;
 	/**
-	 * The functions and shapes, by name.
+	 * The surfaces, shapes and functions, by name.
 	 */
 	std::unordered_map<std::string, const Statement*> definitions;
 	/**
@@ -300,9 +292,22 @@ struct Evaluator {
 	 */
 	std::size_t base;
 	/**
-	 * The function being compiled, or null while shapes are built.
+	 * The surface being compiled, or null while shapes are built.
 	 */
 	Compiler* compiler;
+	/**
+	 * Whether the running definition is a function, which sees only its
+	 * parameters and emits nothing.
+	 */
+	bool isolated;
+	/**
+	 * Whether the running surface or function has returned.
+	 */
+	bool returned;
+	/**
+	 * What it returned.
+	 */
+	Value result;
 	/**
 	 * Each function compiled for a distinct set of list arguments, as an
 	 * index into the scene's programs, by a key of the function and the
@@ -356,7 +361,7 @@ struct Operation {
 };
 
 /**
- * A call of a function or a shape to run.
+ * A call of a surface, a shape or a function to run.
  */
 struct Invocation {
 	/**
@@ -527,11 +532,12 @@ std::uint32_t pushStep(Compiler& compiler, const Step& step);
 std::uint32_t slotOf(Evaluator& evaluator, const Value& value);
 
 /**
- * Run a function's body inside the function being compiled and return
+ * Run a surface's or a function's body where it is called, inside the
+ * surface being compiled or, for a function, at load time, and return
  * the value it returns. It fails where the body never returns.
  *
  * @param evaluator The evaluator.
- * @param call The function, its arguments and where it was called.
+ * @param call The definition, its arguments and where it was called.
  */
 Value inlineFunction(Evaluator& evaluator, const Invocation& call);
 

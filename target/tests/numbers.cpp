@@ -115,7 +115,7 @@ void checkInterval(const Scene& scene, const Point& low, std::mt19937& random) {
 
 void checkNumbers() {
 	const Scene scene = sceneOrExit(writeScene("numbers", R"(
-		function mixed(k) {
+		surface mixed(k) {
 			let q = abs(p) - [0.5, 0.4, 0.3];
 			let a = length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);
 			let b = sin(p.x * 3) * cos(p.y * 2) + atan2(p.y, p.x + 3) + pow(p.z * p.z + 1, 1.5) / (2 + p.x);

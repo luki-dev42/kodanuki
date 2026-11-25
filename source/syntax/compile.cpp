@@ -126,8 +126,6 @@ Compiler emptyCompiler() {
 		.constants = {},
 		.point     = numberValue(0),
 		.normal    = numberValue(0),
-		.returned  = false,
-		.result    = numberValue(0),
 	};
 }
 

@@ -48,6 +48,12 @@ enum class ExpressionKind : std::uint8_t {
 	 * operands.
 	 */
 	Binary,
+	/**
+	 * A list built by loops, `[e for x in a, y in b if c]`: its items
+	 * the element, one source per loop, outermost first, and the
+	 * condition where its text is `if`; its names the loop variables.
+	 */
+	Comprehension,
 };
 
 /**
@@ -73,19 +79,24 @@ enum class StatementKind : std::uint8_t {
 	 */
 	If,
 	/**
-	 * A return of a function, its expression the value.
+	 * A return of a surface or a function, its expression the value.
 	 */
 	Return,
 	/**
-	 * A function's definition, its text the name and its names the
+	 * A surface's definition, its text the name and its names the
 	 * parameters.
 	 */
-	Function,
+	Surface,
 	/**
 	 * A shape's definition, its text the name and its names the
 	 * parameters.
 	 */
 	Shape,
+	/**
+	 * A function's definition, its text the name and its names the
+	 * parameters.
+	 */
+	Function,
 	/**
 	 * A settings block, its text the block, its word the kind of a sky
 	 * or a light, and one name and one expression per field.
@@ -103,7 +114,7 @@ enum class StatementKind : std::uint8_t {
 	 */
 	Join,
 	/**
-	 * A call of a function or a shape that emits it, its expression the
+	 * A call of a surface or a shape that emits it, its expression the
 	 * call.
 	 */
 	Call,
@@ -158,7 +169,7 @@ struct Expression {
 	std::vector<Expression> items;
 	/**
 	 * A call's argument names matching its items one for one, empty for
-	 * a positional argument.
+	 * a positional argument, or a comprehension's loop variables.
 	 */
 	std::vector<std::string> names;
 };

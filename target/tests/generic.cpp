@@ -36,11 +36,11 @@ const char* genericText = R"(
 		samples   = 48;
 	}
 
-	function sphere(r) {
+	surface sphere(r) {
 		return length(p) - r;
 	}
 
-	function box(size) {
+	surface box(size) {
 		let q = abs(p) - size / 2;
 		return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);
 	}
@@ -336,11 +336,11 @@ const char* bouncingText = R"(
 		samples = 4;
 	}
 
-	function sphere(r) {
+	surface sphere(r) {
 		return length(p) - r;
 	}
 
-	function ground() {
+	surface ground() {
 		return p.z;
 	}
 

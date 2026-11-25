@@ -22,8 +22,8 @@ double distanceAt(const Scene& scene, const std::array<double, 3>& p) {
 }
 
 void checkCompiledFn() {
-	const Scene scene = sceneOrExit(writeScene("function", R"(
-		function f(k) {
+	const Scene scene = sceneOrExit(writeScene("surface", R"(
+		surface f(k) {
 			let s = 0;
 			for i in 0..3 {
 				let s = s + i * k;
@@ -37,7 +37,7 @@ void checkCompiledFn() {
 		at([1, 0, 0]) f(2);
 	)"))
 							.scene;
-	check(scene.programs.size() == 1, "one program for one function");
+	check(scene.programs.size() == 1, "one program for one surface");
 
 	const Near doubled = {
 		.got       = distanceAt(scene, { 2, 3, 4 }),
@@ -60,7 +60,7 @@ void checkCompiledFn() {
 
 void checkPlacement() {
 	const Scene scene = sceneOrExit(writeScene("place", R"(
-		function ball(r) {
+		surface ball(r) {
 			return length(p) - r;
 		}
 
@@ -107,7 +107,7 @@ void checkPlacement() {
 
 void checkJoins() {
 	const Scene scene = sceneOrExit(writeScene("joins", R"(
-		function ball(r) {
+		surface ball(r) {
 			return length(p) - r;
 		}
 
@@ -145,7 +145,7 @@ void checkJoins() {
 
 void checkRepeat() {
 	const Scene scene = sceneOrExit(writeScene("repeat", R"(
-		function ball(r) {
+		surface ball(r) {
 			return length(p) - r;
 		}
 
@@ -195,7 +195,7 @@ void checkRepeat() {
 
 void checkUnionParts() {
 	const Scene scene = sceneOrExit(writeScene("unions", R"(
-		function ball(r) {
+		surface ball(r) {
 			return length(p) - r;
 		}
 
@@ -231,7 +231,7 @@ void checkUnionParts() {
 
 void checkRules() {
 	const SceneFile file           = sceneOrExit(writeScene("rules", R"(
-		function ball(r) {
+		surface ball(r) {
 			return length(p) - r;
 		}
 
@@ -266,7 +266,7 @@ void checkRules() {
 
 void checkAbsoluteImport() {
 	const std::string imported = writeScene("imported", R"(
-		function ball(r) {
+		surface ball(r) {
 			return length(p) - r;
 		}
 
@@ -279,14 +279,14 @@ void checkAbsoluteImport() {
 
 void checkRenderCaps() {
 	const SceneFile capped       = sceneOrExit(writeScene("capped", R"(
-		function ball(r) {
+		surface ball(r) {
 			return length(p) - r;
 		}
 
 		render { surfaces = 3; collisions = 5; }
 		ball(1);
 	)"));
-	const SceneFile plain        = sceneOrExit(writeScene("plain", "function ball(r) {\n\treturn length(p) - r;\n}\n\nball(1);\n"));
+	const SceneFile plain        = sceneOrExit(writeScene("plain", "surface ball(r) {\n\treturn length(p) - r;\n}\n\nball(1);\n"));
 	const TransportLimits limits = transportLimits(capped.shot.render);
 	const TransportLimits common = transportLimits(plain.shot.render);
 	check(limits.maximumDepth == 3 && limits.maximumCollisions == 5, "a render's surfaces and collisions cap the walk");
@@ -294,7 +294,7 @@ void checkRenderCaps() {
 }
 
 void checkLoadErrors() {
-	const std::string unended = writeScene("unended", "function ball(r) {\n\treturn length(p) - r;\n}\n\nball(1)\n");
+	const std::string unended = writeScene("unended", "surface ball(r) {\n\treturn length(p) - r;\n}\n\nball(1)\n");
 	const LoadedScene parsed  = loadScene(unended, 0);
 	check(parsed.error == unended + ":6:1: expected ';'" && parsed.file.scene.objects.empty(), "a parse error comes back as a value with its location");
 
@@ -305,15 +305,15 @@ void checkLoadErrors() {
 	const std::string empty = writeScene("empty", "let a = 1;\n");
 	check(loadScene(empty, 0).error == empty + ": the scene has no shapes", "a scene without shapes is an error");
 
-	const std::string endless = writeScene("endless", "function ball(r) {\n\tlet d = length(p) - r;\n\tfor i in 0..40000 {\n\t\tlet d = abs(d) - r;\n\t}\n\treturn d;\n}\n\nball(1);\n");
-	check(loadScene(endless, 0).error == endless + ":9:1: ball has more than 65535 steps", "a function of more than 65535 steps is an error");
+	const std::string endless = writeScene("endless", "surface ball(r) {\n\tlet d = length(p) - r;\n\tfor i in 0..40000 {\n\t\tlet d = abs(d) - r;\n\t}\n\treturn d;\n}\n\nball(1);\n");
+	check(loadScene(endless, 0).error == endless + ":9:1: ball has more than 65535 steps", "a surface of more than 65535 steps is an error");
 
-	const std::string fine = writeScene("fine", "function ball(r) {\n\treturn length(p) - r;\n}\n\nball(1);\n");
+	const std::string fine = writeScene("fine", "surface ball(r) {\n\treturn length(p) - r;\n}\n\nball(1);\n");
 	check(loadScene(fine, 0).error.empty(), "a load after a failed one starts clean");
 }
 
 std::string ballText(const std::string& body) {
-	return "function ball(r) {\n\treturn length(p) - r;\n}\n\n" + body;
+	return "surface ball(r) {\n\treturn length(p) - r;\n}\n\n" + body;
 }
 
 double placedX(const std::string& name, const std::string& stops, const std::string& at) {
@@ -378,8 +378,8 @@ std::string tiledError(const char* name, const std::string& body) {
 void checkTileErrors() {
 	check(tiledError("tiled_setting", "\trender {\n\t\twidth = 10;\n\t}\n") == ":6:2: tiles may not hold settings", "tiles may not hold settings");
 	check(tiledError("tiled_import", "\timport \"other.sdf\";\n") == ":6:2: tiles may not import", "tiles may not import");
-	check(tiledError("tiled_function", "\tfunction f() {\n\t\treturn 1;\n\t}\n") == ":6:2: tiles may not define a function or a shape", "tiles may not define a function");
-	check(tiledError("tiled_shape", "\tshape s() {\n\t\tball(1);\n\t}\n") == ":6:2: tiles may not define a function or a shape", "tiles may not define a shape");
+	check(tiledError("tiled_function", "\tfunction f() {\n\t\treturn 1;\n\t}\n") == ":6:2: tiles may not define a function, a surface or a shape", "tiles may not define a function");
+	check(tiledError("tiled_shape", "\tshape s() {\n\t\tball(1);\n\t}\n") == ":6:2: tiles may not define a function, a surface or a shape", "tiles may not define a shape");
 	check(tiledError("tiled_material", "\tpaint(matte([1, 0, 0])) ball(1);\n") == ":6:8: tiles may not make a material", "tiles may not make a material");
 	check(tiledError("tiled_coat", "\tcoat(shade(0.5), above(1)) ball(1);\n") == ":6:2: tiles may not make a coat", "tiles may not make a coat");
 	check(tiledError("tiled_group", "\tgroup(stage) ball(1);\n") == ":6:2: tiles may not put shapes in a group", "tiles may not put shapes in a group");
@@ -442,6 +442,51 @@ void checkTiles() {
 	checkTileBounds();
 }
 
+double placedBy(const char* name, const std::string& body) {
+	return sceneOrExit(writeScene(name, ballText(body).c_str())).scene.leaves[0].placement.origin[0];
+}
+
+std::string loadError(const char* name, const std::string& body) {
+	const std::string path = writeScene(name, ballText(body).c_str());
+	return loadScene(path, 0).error.substr(path.size());
+}
+
+void checkFunctions() {
+	check(placedBy("returned", "function twice(a) {\n\tlet b = a * 2;\n\treturn b + 1;\n}\n\nat([twice(3), 0, 0]) ball(1);\n") == 7, "a function runs at load time and returns a value");
+	check(placedBy("threaded", "function next(s) {\n\treturn s + 1;\n}\n\nlet s = 1;\nlet s = next(s);\nlet s = next(s);\nat([s, 0, 0]) ball(1);\n") == 3, "a function's result threads a value through the file");
+	const Scene inlined = sceneOrExit(writeScene("inlined", ballText("function square(x) {\n\treturn x * x;\n}\n\nsurface blob(r) {\n\treturn length(p) - square(r);\n}\n\nblob(2);\n").c_str())).scene;
+
+	const Near squared = {
+		.got       = distanceAt(inlined, { 0, 0, 0 }),
+		.want      = -4,
+		.tolerance = 1e-12,
+		.what      = "a function called in a surface is inlined",
+	};
+
+	checkNear(squared);
+	check(loadError("global", "let k = 2;\nfunction f(a) {\n\treturn a + k;\n}\n\nat([f(1), 0, 0]) ball(1);\n") == ":7:13: a function sees only its parameters: 'k'", "a function sees no top-level binding");
+	check(loadError("emitting", "function f(a) {\n\tball(a);\n\treturn a;\n}\n\nat([f(1), 0, 0]) ball(1);\n") == ":6:2: a surface or a function only computes; shapes are emitted in a shape or at the top", "a function emits nothing");
+	check(loadError("unreturned", "function f(a) {\n\tlet b = a;\n}\n\nat([f(1), 0, 0]) ball(1);\n") == ":5:1: f never returns", "a function must return");
+	check(loadError("stated", "function f(a) {\n\treturn a;\n}\n\nf(1);\n") == ":9:1: only a surface or a shape can stand as a statement", "a function is no statement");
+}
+
+void checkComprehensions() {
+	check(placedBy("mapped", "let xs = [x * 2 for x in [1, 2, 3]];\nat([xs[2], 0, 0]) ball(1);\n") == 6, "a comprehension maps a list");
+	check(placedBy("nested", "let g = [[x, y] for x in 0..2, y in 0..3];\nat([count(g) * 10 + g[5][0] + g[5][1], 0, 0]) ball(1);\n") == 63, "a comprehension's loops nest, the first outermost");
+	check(placedBy("filtered", "let odd = [x for x in 0..10 if x - floor(x / 2) * 2 == 1];\nat([count(odd) * 10 + odd[4], 0, 0]) ball(1);\n") == 59, "a comprehension keeps the elements its condition holds for");
+	const Scene compiled = sceneOrExit(writeScene("comprehended", ballText("surface far(r) {\n\tlet q = [p.x * k for k in [1, 2]];\n\treturn q[1] - r;\n}\n\nfar(0.5);\n").c_str())).scene;
+
+	const Near doubled = {
+		.got       = distanceAt(compiled, { 1, 0, 0 }),
+		.want      = 1.5,
+		.tolerance = 1e-12,
+		.what      = "a comprehension in a surface holds registers",
+	};
+
+	checkNear(doubled);
+	check(loadError("unknowable", "surface far(r) {\n\tlet q = [k for k in [1, 2] if p.x > 0];\n\treturn q[0] - r;\n}\n\nfar(0.5);\n") == ":6:36: a comprehension's condition must be known when the scene loads", "a comprehension's condition is known when the scene loads");
+}
+
 void checkLanguage() {
 	checkCompiledFn();
 	checkPlacement();
@@ -457,6 +502,8 @@ void checkLanguage() {
 	checkStops();
 	checkCompared();
 	checkTiles();
+	checkFunctions();
+	checkComprehensions();
 }
 
 }

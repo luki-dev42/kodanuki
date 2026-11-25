@@ -1,0 +1,291 @@
+import "standard.sdf";
+
+render {
+	width     = 1920;
+	height    = 1200;
+	tolerance = 2;
+}
+
+camera {
+	eye    = [0, -38, 35];
+	target = [0, 0, 0.3];
+	fov    = 0.7;
+}
+
+grade {
+	exposure = 1;
+	curve    = filmic;
+}
+
+
+sky gradient {
+	zenith  = [0.05, 0.13, 0.34];
+	horizon = [0.26, 0.40, 0.62];
+	ground  = [0.10, 0.09, 0.08];
+}
+
+light directional {
+	direction = [0.4, -0.5, 0.7];
+	power     = [2.4, 2.3, 2.1];
+}
+
+let black = plastic(#000000, roughness = 0.4);
+let white = plastic(#FFFFFF, roughness = 0.8);
+let grey  = matte(#928E85);
+let beige = matte(#B5B0A1);
+let green = matte(#80FF00, glow = #80FF00, strength = 1.0);
+
+
+let keyboard_length = 45.3;
+let keyboard_width  = 17.0;
+let keyboard_height =  1.8;
+let keyboard_border_left = 1.0;
+
+let key_border = 0.2;
+let key_length = 1.5;
+let key_width  = 1.5;
+let key_height = 1.0;
+
+let key_total_length = key_length + 2 * key_border;
+let key_total_width  = key_width + 2 * key_border;
+
+let row_esc = 12.0;
+let row_123 =  9.4;
+let row_qwe =  7.5;
+let row_asd =  5.6;
+let row_yxc =  3.7;
+let row_alt =  1.8;
+
+
+let keys = [
+	[ 0.0, row_esc, 1, 1, grey], /* Esc */
+	[ 2.0, row_esc, 1, 1, beige], /* F1 */
+	[ 3.0, row_esc, 1, 1, beige], /* F2 */
+	[ 4.0, row_esc, 1, 1, beige], /* F3 */
+	[ 5.0, row_esc, 1, 1, beige], /* F4 */
+	[ 6.5, row_esc, 1, 1, beige], /* F5 */
+	[ 7.5, row_esc, 1, 1, beige], /* F6 */
+	[ 8.5, row_esc, 1, 1, beige], /* F7 */
+	[ 9.5, row_esc, 1, 1, beige], /* F8 */
+	[11.0, row_esc, 1, 1, beige], /* F9 */
+	[12.0, row_esc, 1, 1, beige], /* F10 */
+	[13.0, row_esc, 1, 1, beige], /* F11 */
+	[14.0, row_esc, 1, 1, beige], /* F12 */
+	[15.4, row_esc, 1, 1, beige], /* Druck */
+	[16.4, row_esc, 1, 1, beige], /* Rollen */
+	[17.4, row_esc, 1, 1, beige], /* Pause */
+	
+	[ 0.0, row_123, 1, 1, beige], /* ^ */
+	[ 1.0, row_123, 1, 1, beige], /* 1 */
+	[ 2.0, row_123, 1, 1, beige], /* 2 */
+	[ 3.0, row_123, 1, 1, beige], /* 3 */
+	[ 4.0, row_123, 1, 1, beige], /* 4 */
+	[ 5.0, row_123, 1, 1, beige], /* 5 */
+	[ 6.0, row_123, 1, 1, beige], /* 6 */
+	[ 7.0, row_123, 1, 1, beige], /* 7 */
+	[ 8.0, row_123, 1, 1, beige], /* 8 */
+	[ 9.0, row_123, 1, 1, beige], /* 9 */
+	[10.0, row_123, 1, 1, beige], /* 0 */
+	[11.0, row_123, 1, 1, beige], /* ß */
+	[12.0, row_123, 1, 1, beige], /* ´ */
+	[13.0, row_123, 2, 1, grey], /* Löschen */
+	[15.4, row_123, 1, 1, beige], /* Einfg */
+	[16.4, row_123, 1, 1, beige], /* Pos1 */
+	[17.4, row_123, 1, 1, beige], /* Bild Hoch */
+	[18.8, row_123, 1, 1, beige], /* Num */
+	[19.8, row_123, 1, 1, beige], /* / */
+	[20.8, row_123, 1, 1, beige], /* * */
+	[21.8, row_123, 1, 1, beige], /* - */
+
+	[ 0.0, row_qwe, 1.5, 1, grey], /* Tab */
+	[ 1.5, row_qwe, 1, 1, beige], /* q */
+	[ 2.5, row_qwe, 1, 1, beige], /* w */
+	[ 3.5, row_qwe, 1, 1, beige], /* e */
+	[ 4.5, row_qwe, 1, 1, beige], /* r */
+	[ 5.5, row_qwe, 1, 1, beige], /* t */
+	[ 6.5, row_qwe, 1, 1, beige], /* z */
+	[ 7.5, row_qwe, 1, 1, beige], /* u */
+	[ 8.5, row_qwe, 1, 1, beige], /* i */
+	[ 9.5, row_qwe, 1, 1, beige], /* o */
+	[10.5, row_qwe, 1, 1, beige], /* p */
+	[11.5, row_qwe, 1, 1, beige], /* ü */
+	[12.5, row_qwe, 1, 1, beige], /* + */
+	[15.4, row_qwe, 1, 1, beige], /* Entf */
+	[16.4, row_qwe, 1, 1, beige], /* Ende */
+	[17.4, row_qwe, 1, 1, beige], /* Bild Runter */
+	[18.8, row_qwe, 1, 1, beige], /* 7 */
+	[19.8, row_qwe, 1, 1, beige], /* 8 */
+	[20.8, row_qwe, 1, 1, beige], /* 9 */
+	
+	// Enter
+	[13.5, row_qwe, 1.5, 1, grey],
+	[13.8, row_asd, 1.2, 2, grey],
+	
+	[ 0.0, row_asd, 1.8, 1, grey], /* Caps Lock */
+	[ 1.8, row_asd, 1, 1, beige], /* a */
+	[ 2.8, row_asd, 1, 1, beige], /* s */
+	[ 3.8, row_asd, 1, 1, beige], /* d */
+	[ 4.8, row_asd, 1, 1, beige], /* f */
+	[ 5.8, row_asd, 1, 1, beige], /* g */
+	[ 6.8, row_asd, 1, 1, beige], /* h */
+	[ 7.8, row_asd, 1, 1, beige], /* j */
+	[ 8.8, row_asd, 1, 1, beige], /* k */
+	[ 9.8, row_asd, 1, 1, beige], /* l */
+	[10.8, row_asd, 1, 1, beige], /* ö */
+	[11.8, row_asd, 1, 1, beige], /* ä */
+	[12.8, row_asd, 1, 1, beige], /* # */
+	[18.8, row_asd, 1, 1, beige], /* 4 */
+	[19.8, row_asd, 1, 1, beige], /* 5 */
+	[20.8, row_asd, 1, 1, beige], /* 6 */
+	[21.8, row_asd, 1, 2, grey], /* + */
+	
+	[ 0.0, row_yxc, 1.3, 1, grey], /* Shift */
+	[ 1.3, row_yxc, 1, 1, beige], /* < */
+	[ 2.3, row_yxc, 1, 1, beige], /* y */
+	[ 3.3, row_yxc, 1, 1, beige], /* x */
+	[ 4.3, row_yxc, 1, 1, beige], /* c */
+	[ 5.3, row_yxc, 1, 1, beige], /* v */
+	[ 6.3, row_yxc, 1, 1, beige], /* b */
+	[ 7.3, row_yxc, 1, 1, beige], /* < */
+	[ 8.3, row_yxc, 1, 1, beige], /* m */
+	[ 9.3, row_yxc, 1, 1, beige], /* , */
+	[10.3, row_yxc, 1, 1, beige], /* . */
+	[11.3, row_yxc, 1, 1, beige], /* - */
+	[12.3, row_yxc, 2.7, 1, grey], /* Shift */
+	[16.4, row_yxc, 1, 1, grey], /* Up */
+	[18.8, row_yxc, 1, 1, beige], /* 1 */
+	[19.8, row_yxc, 1, 1, beige], /* 2 */
+	[20.8, row_yxc, 1, 1, beige], /* 3 */
+	
+	[ 0.0, row_alt, 1.5, 1, grey], /* Strg */
+	[ 1.5, row_alt, 1.3, 1, grey], /* Windows */
+	[ 2.8, row_alt, 1.3, 1, grey], /* Alt */
+	[ 4.1, row_alt, 5.7, 1, beige], /* Space */
+	[ 9.8, row_alt, 1.3, 1, grey], /* AltGr */
+	[11.1, row_alt, 1.2, 1, grey], /* Windows */
+	[12.3, row_alt, 1.2, 1, grey], /* Context Menü */
+	[13.5, row_alt, 1.5, 1, grey], /* Strg */
+	
+	[15.4, row_alt, 1, 1, grey], /* Left */
+	[16.4, row_alt, 1, 1, grey], /* Down */
+	[17.4, row_alt, 1, 1, grey], /* Right */
+	[18.8, row_alt, 2, 1, beige], /* 0 */
+	[20.8, row_alt, 1, 1, beige], /* , */
+	[21.8, row_alt, 1, 2, grey], /* Enter */
+];
+
+let led_block_index  = 18.8;
+let led_block_factor =  4.0;
+let led_block_y_pos  = row_esc;
+let led_block_height = 0.05;
+
+let led_length = 0.6;
+let led_width  = 0.2;
+let led_height = 0.1;
+
+let lamps = [
+	[19.8, row_esc + 0.5, green], /* Num Lock */
+	[20.8, row_esc + 0.5, green], /* Caps Lock */
+	[21.8, row_esc + 0.5, green], /* Scroll Lock */
+];
+
+paint(beige) cut(0.0) {
+	box([keyboard_length, keyboard_width, keyboard_height], 0.01);
+	
+	for key in keys {
+		let x_index  = key[0];
+		let y_pos    = key[1];
+		let w_factor = key[2];
+		let h_factor = key[3];
+		
+		let x_base = 0.0 - keyboard_length / 2 + keyboard_border_left;
+		let x_base = x_base + x_index * key_total_length;
+		let x      = x_base + w_factor * key_total_length / 2;
+		
+		let y_base = 0.0 - keyboard_width / 2;
+		let y_base = y_base + y_pos;
+		let y      = y_base + h_factor * key_total_width / 2;
+
+		let w = w_factor * key_total_length;
+		let h = h_factor * key_total_width;
+	
+		with at([x, y, keyboard_height / 2 - key_height / 2]) {
+			box([w, h, key_height], 0.0);
+		}
+	}
+	
+	let x_base = 0.0 - keyboard_length / 2 + keyboard_border_left;
+	let x_base = x_base + led_block_index * key_total_length;
+	let x      = x_base + led_block_factor * key_total_length / 2;
+	
+	let y_base = 0.0 - keyboard_width / 2;
+	let y_base = y_base + led_block_y_pos;
+	let y      = y_base + key_total_width / 2;
+	
+	let w = led_block_factor * key_total_length;
+	let h = key_total_width;
+	
+	at([x, y, keyboard_height / 2 - led_block_height / 2]) coat(shade(-0.07), facing([0, 0, 1], level = 0.6, soft = 0.3)) box([w, h, led_block_height], 0.0);
+	
+	for lamp in lamps {
+		let x_index = lamp[0];
+		let y_pos   = lamp[1];
+		let color   = lamp[2];
+		
+		let x_base = 0.0 - keyboard_length / 2 + keyboard_border_left;
+		let x      = x_base + x_index * key_total_length;
+		
+		let y_base = 0.0 - keyboard_width / 2;
+		let y      = y_base + y_pos;
+
+		let w = led_length;
+		let h = led_width;
+	
+		with at([x, y, keyboard_height / 2 - led_height]) {
+			box([w, h, led_height], 0.0);
+		}		
+	}
+}
+	
+for key in keys {
+	let x_index  = key[0];
+	let y_pos    = key[1];
+	let w_factor = key[2];
+	let h_factor = key[3];
+	let color    = key[4];
+	
+	let x_base = 0.0 - keyboard_length / 2 + keyboard_border_left;
+	let x_base = x_base + x_index * key_total_length;
+	let x      = x_base + w_factor * key_total_length / 2;
+	
+	let y_base = 0.0 - keyboard_width / 2;
+	let y_base = y_base + y_pos;
+	let y      = y_base + h_factor * key_total_width / 2;
+
+	let w = w_factor * key_total_length - 2.0 * key_border;
+	let h = h_factor * key_total_width - 2.0 * key_border;
+
+	with at([x, y, keyboard_height / 2 - key_height / 2]) {
+		paint(color) box([w, h, 2 * key_height], 0.1);
+	}
+}
+
+for lamp in lamps {
+	let x_index = lamp[0];
+	let y_pos   = lamp[1];
+	let color   = lamp[2];
+	
+	let x_base = 0.0 - keyboard_length / 2 + keyboard_border_left;
+	let x      = x_base + x_index * key_total_length;
+	
+	let y_base = 0.0 - keyboard_width / 2;
+	let y      = y_base + y_pos;
+
+	let w = led_length;
+	let h = led_width;
+
+	with at([x, y, keyboard_height / 2 - led_height]) {
+		paint(color) box([w, h, led_height], 0.0);
+	}
+}
+

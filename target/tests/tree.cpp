@@ -273,7 +273,7 @@ void checkFocusOnView() {
 			fov    = 0.7;
 		}
 
-		function sphere(r) {
+		surface sphere(r) {
 			return length(p) - r;
 		}
 
@@ -318,7 +318,7 @@ void checkFocusOnView() {
 
 Program sphereProgram() {
 	const SceneFile file = sceneOrExit(writeScene("patch", R"(
-		function sphere(r) {
+		surface sphere(r) {
 			return length(p) - r;
 		}
 
@@ -674,7 +674,7 @@ int unprovenFaces(const std::vector<Program>& programs, const Asked& asked) {
 
 void checkClassifyBlend() {
 	const SceneFile file = sceneOrExit(writeScene("blend", R"(
-		function sphere(r) {
+		surface sphere(r) {
 			return length(p) - r;
 		}
 
@@ -710,7 +710,7 @@ void checkClassifyBlend() {
 
 void checkClassifyCrowded() {
 	const SceneFile file = sceneOrExit(writeScene("crowd", R"(
-		function box(size) {
+		surface box(size) {
 			let q = abs(p) - size / 2;
 			return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);
 		}
@@ -737,7 +737,7 @@ void checkClassifyCrowded() {
 
 void checkPatchSkip() {
 	const SceneFile file = sceneOrExit(writeScene("facets", R"(
-		function plane(normal, offset) {
+		surface plane(normal, offset) {
 			return dot(p, normal) - offset;
 		}
 
@@ -1036,7 +1036,7 @@ bool isSeamPair(const Plan& plan) {
 
 void checkSeamPair() {
 	const Scene apart = sceneOrExit(writeScene("apart", R"(
-		function sphere(r) {
+		surface sphere(r) {
 			return length(p) - r;
 		}
 
@@ -1046,7 +1046,7 @@ void checkSeamPair() {
 							.scene;
 
 	const Scene joined = sceneOrExit(writeScene("joined", R"(
-		function sphere(r) {
+		surface sphere(r) {
 			return length(p) - r;
 		}
 
@@ -1157,11 +1157,11 @@ void checkCutPass() {
 
 SceneFile hiddenBumpScene() {
 	return sceneOrExit(writeScene("bump", R"(
-		function sphere(r) {
+		surface sphere(r) {
 			return length(p) - r;
 		}
 
-		function ground(height) {
+		surface ground(height) {
 			return p.z - height;
 		}
 
@@ -1328,7 +1328,7 @@ std::size_t pointsOutside(const Program& program, const Box& box) {
 
 const char* blobScenePath() {
 	return writeScene("blob", R"(
-		function sphere(r) {
+		surface sphere(r) {
 			return length(p) - r;
 		}
 
@@ -1414,11 +1414,11 @@ void checkLazyThreads() {
 
 const char* asideScenePath() {
 	return writeScene("aside", R"(
-		function sphere(r) {
+		surface sphere(r) {
 			return length(p) - r;
 		}
 
-		function box(size) {
+		surface box(size) {
 			let q = abs(p) - size / 2;
 			return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);
 		}
@@ -1505,11 +1505,11 @@ void checkSharpRefines() {
 
 void checkNearPixel() {
 	const SceneFile file                 = sceneOrExit(writeScene("near_pixel", R"(
-		function sphere(r) {
+		surface sphere(r) {
 			return length(p) - r;
 		}
 
-		function box(size) {
+		surface box(size) {
 			let q = abs(p) - size / 2;
 			return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);
 		}
@@ -1553,11 +1553,11 @@ void checkNearPixel() {
 
 SceneFile fieldScene(double place, bool added) {
 	const std::string head  = R"(
-		function sphere(r) {
+		surface sphere(r) {
 			return length(p) - r;
 		}
 
-		function box(size) {
+		surface box(size) {
 			let q = abs(p) - size / 2;
 			return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);
 		}
@@ -1865,11 +1865,11 @@ SceneFile reachScene() {
 			far = 20;
 		}
 
-		function sphere(r) {
+		surface sphere(r) {
 			return length(p) - r;
 		}
 
-		function box(size) {
+		surface box(size) {
 			let q = abs(p) - size / 2;
 			return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);
 		}
@@ -1938,7 +1938,7 @@ void checkReachTiles() {
 			fov    = 0.6;
 		}
 
-		function ball(r) {
+		surface ball(r) {
 			return length(p) - r;
 		}
 
@@ -1990,7 +1990,7 @@ void checkReachedTiles() {
 			fov    = 0.6;
 		}
 
-		function ball(r) {
+		surface ball(r) {
 			return length(p) - r;
 		}
 
@@ -2043,7 +2043,7 @@ SceneFile shownTileScene(int shown) {
 			fov    = 0.6;
 		}
 
-		function ball(r) {
+		surface ball(r) {
 			return length(p) - r;
 		}
 
@@ -2111,11 +2111,11 @@ std::vector<std::string> gridShapes() {
 
 SceneFile gridScene(const std::vector<std::string>& shapes) {
 	std::string text = R"(
-		function sphere(r) {
+		surface sphere(r) {
 			return length(p) - r;
 		}
 
-		function box(size) {
+		surface box(size) {
 			let q = abs(p) - size / 2;
 			return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);
 		}
@@ -2260,7 +2260,7 @@ LazyCase tiledCase(const SceneFile& file) {
 }
 
 std::string boundedTileText(const std::string& far, const std::string& grid) {
-	return "render {\n\tfar = " + far + ";\n}\n\ncamera {\n\teye    = [0, 0, 3];\n\ttarget = [1000, 0, 3];\n\tfov    = 0.6;\n}\n\nfunction ball(r) {\n\treturn length(p) - r;\n}\n\ntiles(" + grid + ") {\n\tat([5, 5, 1]) ball(1);\n}\n";
+	return "render {\n\tfar = " + far + ";\n}\n\ncamera {\n\teye    = [0, 0, 3];\n\ttarget = [1000, 0, 3];\n\tfov    = 0.6;\n}\n\nsurface ball(r) {\n\treturn length(p) - r;\n}\n\ntiles(" + grid + ") {\n\tat([5, 5, 1]) ball(1);\n}\n";
 }
 
 bool heldWithin(const Tree& tree, const TileBlock& block) {
@@ -2325,7 +2325,7 @@ SceneFile walkedTileScene(int frame) {
 	fov    = 0.6;
 }
 
-function ball(r) {
+surface ball(r) {
 	return length(p) - r;
 }
 
@@ -2389,7 +2389,7 @@ void checkWalkedTiles() {
 }
 
 bool tileStepsRefused(const char* name, const char* step) {
-	const std::string text               = std::string("function ball(r) {\n\treturn length(p) - r;\n}\n\ntiles(step = ") + step + ") {\n\tif tile.z == 0 {\n\t\tat([0.5, 0.5, 0.5]) ball(0.2);\n\t}\n}\n";
+	const std::string text               = std::string("surface ball(r) {\n\treturn length(p) - r;\n}\n\ntiles(step = ") + step + ") {\n\tif tile.z == 0 {\n\t\tat([0.5, 0.5, 0.5]) ball(0.2);\n\t}\n}\n";
 	const SceneFile file                 = sceneOrExit(writeScene(name, text.c_str()));
 	const ObjectBoxes boxes              = objectBoxes(file.scene, 1);
 	const Region region                  = boxedRegion(heldBoxes(boxes.boxes, file.scene), file.shot);

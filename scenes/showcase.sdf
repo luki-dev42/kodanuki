@@ -37,25 +37,25 @@ light sphere {
 	power  = [40, 36, 30];
 }
 
-function tiles(k) {
+surface tiles(k) {
 	let q = floor(p * k);
 	let s = q.x + q.y + q.z;
 	return s - 2 * floor(s / 2);
 }
 
-function stripes(k) {
+surface stripes(k) {
 	return 0.5 + 0.5 * sin(p.z * k);
 }
 
-function rings(k) {
+surface rings(k) {
 	return 0.5 + 0.5 * cos(length(p.xy) * k);
 }
 
-function height(low, high) {
+surface height(low, high) {
 	return clamp((p.z - low) / (high - low), 0, 1);
 }
 
-function band(h) {
+surface band(h) {
 	return abs(p.z - h);
 }
 

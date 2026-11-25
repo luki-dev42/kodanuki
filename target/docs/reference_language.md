@@ -4,7 +4,7 @@ A scene is one `.sdf` file, written by hand. It is C-like: `//` and
 `/** ... */` comments (any `/* ... */`, not nested), `;` ends a
 statement, braces make a block. It runs once when it loads, and once
 more for every frame of a clip (see Time). What it leaves behind is a flat list of shapes, each a
-point function placed and painted, plus the camera, lights, sky and
+surface placed and painted, plus the camera, lights, sky and
 settings, and any `tiles` blocks, which make shapes where rays come
 (see Tiles). Space is z-up, lengths are metres, angles are radians.
 
@@ -21,10 +21,23 @@ Draft for milestone 1. "Open" marks what is still to be decided.
 | name | `x`, `filmic` | an axis or a setting's word |
 
 Lists are vectors. `+ - * /` work element-wise and a number spreads
-over a list. `a[i]` indexes, `count(a)` counts, and `.x .y .z .w` and
-swizzles such as `.xz` or `.zyx` read the first four elements. A list
-that mixes kinds (`[1, [2, 3]]`) is an error. There are no strings
-except the path of an `import`.
+over a list. A list may be built from others by loops written inside
+it, as in Python:
+
+```
+let doubled = [x * 2 for x in xs];
+let grid    = [[x, y, 0] for x in 0..4, y in 0..3];   // nested, x outermost
+let near    = [q for q in points if length(q) < 1];
+```
+
+The loops take what `for` takes, a range or a list; the `if`, which
+may be left out, keeps the elements its condition holds for, and must
+be known when the scene loads.
+
+`a[i]` indexes, `count(a)` counts, and `.x .y .z .w` and swizzles such
+as `.xz` or `.zyx` read the first four elements. A list that mixes
+kinds (`[1, [2, 3]]`) is an error. There are no strings except the
+path of an `import`.
 
 Booleans are numbers: comparisons `< <= > >= == !=` give 0 or 1, and
 `&& || !` treat 0 as false.
@@ -45,13 +58,13 @@ is no bare `x = ...`. A `let` of a name already bound in this block or
 one around it changes that binding, so a loop can carry a value out:
 `let d = min(d, e);`. A new name lives until its block ends.
 
-## Point functions: `function`
+## Surfaces: `surface`
 
 ```
-function sphere(r) { return length(p) - r; }
+surface sphere(r) { return length(p) - r; }
 ```
 
-A `function` is a function of a point. Inside it `p` is the point (a
+A `surface` is a function of a point. Inside it `p` is the point (a
 vector of three), and when it is used as a pattern `n` is the surface
 normal. It must `return` a number. Used as a shape, the number is a
 distance. Used as a pattern, it is a value in 0..1 for a ramp. Both
@@ -64,13 +77,31 @@ hand to keep to it.
 
 The body may use `let`, `for` and `if`. Every loop bound
 must be known when the scene loads: a literal, or `count` of a list
-argument. Loops are unrolled, and `if` becomes a select. A `function` is
+argument. Loops are unrolled, and `if` becomes a select. A `surface` is
 compiled once per distinct set of list arguments; its number
 arguments stay arguments, so a thousand spheres share one program.
 
 Built-ins: `sqrt abs floor sin cos atan2 pow min max clamp mix
 length dot cross normalize select all any sign`, and `pi`; `linear` and
 `smooth` read a list of stops (see Time).
+
+## Functions: `function`
+
+```
+function next(seed) {
+	let seed = seed * 16807;
+	return seed - floor(seed / 2147483647) * 2147483647;
+}
+```
+
+A `function` computes a value. It sees only its parameters: no
+binding of the top level, not even `time` (reading one is an error),
+so it changes nothing outside it, and a value comes out only as what
+it `return`s. It must return, and nothing may follow the return. It
+emits no shapes and is no statement; it is called inside an
+expression: `let seed = next(seed);`. Called from a surface, its body
+is inlined there, so it may work on `p`. The body may use `let`, `for`
+and `if`, as a surface's may.
 
 ## Builders: `shape`
 
@@ -83,9 +114,9 @@ shape pawn() {
 }
 ```
 
-A `shape` runs at load time and emits shapes. It may call fns
-(emitting one shape), call other shapes, loop and branch. It returns
-nothing, and it may emit nothing. It sees the bindings at the top
+A `shape` runs at load time and emits shapes. It may call surfaces
+(emitting one shape), functions and other shapes, loop and branch. It
+returns nothing, and it may emit nothing. It sees the bindings at the top
 level of the file but not its caller's, and a `let` of a top-level
 name changes it, so a shape can carry a value out (scenes/city.sdf
 draws its random numbers so):
@@ -100,7 +131,7 @@ shape draw() {
 
 ## Emitting a shape
 
-A statement that calls a `function` or a `shape` emits it. Modifiers before
+A statement that calls a `surface` or a `shape` emits it. Modifiers before
 it place and paint it. They read left to right, the outermost first:
 
 ```
@@ -200,7 +231,7 @@ a top-level name: tiles run in any order, each alone.
   cell a ray crosses, the sky's too, is cut down to 4 steps wide to run
   the tiles it meets, even empty ones.
 - Its body, and the shapes it calls, may not hold settings or imports,
-  define functions or shapes, hold `tiles`, make materials or coats,
+  define functions, surfaces or shapes, hold `tiles`, make materials or coats,
   say rules or put shapes in groups (`tiles may not ...`); it paints
   with the materials made before it.
 - A tile's shapes are trusted to stay inside its box and are not
@@ -269,7 +300,7 @@ lights are drawn toward it, where it is sharp) and `aimed` (paths aim
 at its glow rather than only meeting it).
 
 An albedo is a colour or a ramp: `ramp(pattern, c0, c1, ...)` spreads
-the colours evenly over 0..1. The pattern is a call of a function,
+the colours evenly over 0..1. The pattern is a call of a surface,
 `checker(4)`, read in the painted shape's own space. `world(checker(4))`
 reads it in world space instead. A pattern may read the normal `n`.
 
@@ -292,12 +323,12 @@ The mask weighs each point of the surface from 0 to 1:
 | `above(height, soft = 0, axis = [0, 0, 1])` | past a height along a world axis |
 | `below(height, soft = 0, axis = [0, 0, 1])` | under it |
 | `facing(axis, level = 0.5, soft = 0.2)` | where the normal's cosine to the axis passes `level` (axis default `[0, 0, 1]`) |
-| `inside(f, soft = 0)` | where the function `f`, read at the world point, is below 0 |
+| `inside(f, soft = 0)` | where the surface `f`, read at the world point, is below 0 |
 | `along(f, width, soft = 0)` | in a band `width` wide about the surface of `f` |
-| a function call | its value clamped to 0..1, in the painted shape's space (or `world(...)`) |
+| a surface call | its value clamped to 0..1, in the painted shape's space (or `world(...)`) |
 
 `soft` is how far the edge takes to fade, half of it either side, by a
-smooth step; 0 is a hard edge. Every mask but a function call also
+smooth step; 0 is a hard edge. Every mask but a surface call also
 takes `ragged` and `grain` (defaults 0 and 1): value noise of cells
 `grain` metres across moves the edge by up to `ragged`, in the units
 the mask's reach is measured in, for a torn or worn edge. The effect is
@@ -325,7 +356,7 @@ own roughness.
 A bump's relief is `grain` (two octaves of value noise), `pits`
 (hollows where the noise is high), `streak` (noise drawn out along the
 axis `along`, as on brushed metal), each with cells `span` metres across
-in world space, or a function call read as a height, in the painted
+in world space, or a surface call read as a height, in the painted
 shape's space (or `world(...)`). The surface itself does not move; only
 the normal it is shaded with tilts, and it never tilts away from the
 ray. A bump may leave its mask out and is then worn everywhere:
@@ -554,13 +585,13 @@ the eye the plane that stays sharp lies, measured along the view; 0
 ## The standard library
 
 `scenes/standard.sdf` is plain scene code. It defines:
-- shapes: `sphere`, `box`, `cylinder`, `capsule`, `cone` (height,
-  base and tip radii, standing about its middle), `ellipsoid` (radii,
-  the distance scaled by the smallest), `torus`, `plane`, `revolve` (a
-  profile of [radius, height] points spun about z) and `sweep` (a round
-  cone between two points);
-- patterns: `checker` and `lean` (the sine of the angle between `n`
-  and an axis, less `onset`, over `spread`).
+- surfaces emitted as shapes: `sphere`, `box`, `cylinder`, `capsule`,
+  `cone` (height, base and tip radii, standing about its middle),
+  `ellipsoid` (radii, the distance scaled by the smallest), `torus`,
+  `plane`, `revolve` (a profile of [radius, height] points spun about
+  z) and `sweep` (a round cone between two points);
+- surfaces read as patterns: `checker` and `lean` (the sine of the
+  angle between `n` and an axis, less `onset`, over `spread`).
 
 ## Formatting
 

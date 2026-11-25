@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Kodanuki scene language (.sdf), see target/docs/reference_language.md -->
+<language id="kodanuki-sdf" name="Kodanuki SDF" version="2.0" _section="Source">
+  <metadata>
+    <property name="globs">*.sdf</property>
+    <property name="line-comment-start">//</property>
+    <property name="block-comment-start">/*</property>
+    <property name="block-comment-end">*/</property>
+  </metadata>
+
+  <styles>
+    <style id="comment"   name="Comment"   map-to="def:comment"/>
+    <style id="string"    name="String"    map-to="def:string"/>
+    <style id="number"    name="Number"    map-to="def:number"/>
+    <style id="colour"    name="Colour"    map-to="def:special-constant"/>
+    <style id="keyword"   name="Keyword"   map-to="def:keyword"/>
+    <style id="join"      name="Join"      map-to="def:keyword"/>
+    <style id="modifier"  name="Modifier"  map-to="def:statement"/>
+    <style id="block"     name="Block"     map-to="def:type"/>
+    <style id="material"  name="Material"  map-to="def:type"/>
+    <style id="coat"      name="Coat"      map-to="def:function"/>
+    <style id="builtin"   name="Built-in"  map-to="def:builtin"/>
+    <style id="standard"  name="Standard"  map-to="def:function"/>
+    <style id="constant"  name="Constant"  map-to="def:constant"/>
+  </styles>
+
+  <definitions>
+    <context id="line-comment" style-ref="comment" end-at-line-end="true">
+      <start>//</start>
+      <include>
+        <context ref="def:in-comment"/>
+      </include>
+    </context>
+
+    <context id="block-comment" style-ref="comment">
+      <start>/\*</start>
+      <end>\*/</end>
+      <include>
+        <context ref="def:in-comment"/>
+      </include>
+    </context>
+
+    <context id="string" style-ref="string" end-at-line-end="true">
+      <start>"</start>
+      <end>"</end>
+    </context>
+
+    <context id="colour" style-ref="colour">
+      <match>#[0-9A-Fa-f]{6}\b</match>
+    </context>
+
+    <context id="number" style-ref="number">
+      <match>\b[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?\b</match>
+    </context>
+
+    <context id="keyword" style-ref="keyword">
+      <keyword>import</keyword>
+      <keyword>let</keyword>
+      <keyword>for</keyword>
+      <keyword>in</keyword>
+      <keyword>if</keyword>
+      <keyword>return</keyword>
+      <keyword>surface</keyword>
+      <keyword>shape</keyword>
+      <keyword>function</keyword>
+      <keyword>with</keyword>
+    </context>
+
+    <context id="join" style-ref="join">
+      <keyword>merge</keyword>
+      <keyword>cut</keyword>
+      <keyword>clip</keyword>
+      <keyword>repeat</keyword>
+    </context>
+
+    <context id="modifier" style-ref="modifier">
+      <keyword>at</keyword>
+      <keyword>turn</keyword>
+      <keyword>scale</keyword>
+      <keyword>paint</keyword>
+      <keyword>coat</keyword>
+      <keyword>rule</keyword>
+      <keyword>group</keyword>
+      <keyword>world</keyword>
+    </context>
+
+    <context id="block" style-ref="block">
+      <keyword>render</keyword>
+      <keyword>camera</keyword>
+      <keyword>grade</keyword>
+      <keyword>clouds</keyword>
+      <keyword>stars</keyword>
+      <keyword>sky</keyword>
+      <keyword>light</keyword>
+      <keyword>gradient</keyword>
+      <keyword>physical</keyword>
+      <keyword>painted</keyword>
+      <keyword>directional</keyword>
+      <keyword>point</keyword>
+      <keyword>quad</keyword>
+      <keyword>sun</keyword>
+      <keyword>moon</keyword>
+    </context>
+
+    <context id="material" style-ref="material">
+      <keyword>matte</keyword>
+      <keyword>plastic</keyword>
+      <keyword>metal</keyword>
+      <keyword>glass</keyword>
+      <keyword>ramp</keyword>
+    </context>
+
+    <context id="coat" style-ref="coat">
+      <keyword>tint</keyword>
+      <keyword>shade</keyword>
+      <keyword>rough</keyword>
+      <keyword>polish</keyword>
+      <keyword>wet</keyword>
+      <keyword>glow</keyword>
+      <keyword>bump</keyword>
+      <keyword>above</keyword>
+      <keyword>below</keyword>
+      <keyword>facing</keyword>
+      <keyword>inside</keyword>
+      <keyword>along</keyword>
+      <keyword>grain</keyword>
+      <keyword>pits</keyword>
+      <keyword>streak</keyword>
+    </context>
+
+    <context id="builtin" style-ref="builtin">
+      <keyword>sqrt</keyword>
+      <keyword>abs</keyword>
+      <keyword>floor</keyword>
+      <keyword>sin</keyword>
+      <keyword>cos</keyword>
+      <keyword>atan2</keyword>
+      <keyword>pow</keyword>
+      <keyword>min</keyword>
+      <keyword>max</keyword>
+      <keyword>clamp</keyword>
+      <keyword>mix</keyword>
+      <keyword>length</keyword>
+      <keyword>dot</keyword>
+      <keyword>cross</keyword>
+      <keyword>normalize</keyword>
+      <keyword>select</keyword>
+      <keyword>all</keyword>
+      <keyword>any</keyword>
+      <keyword>sign</keyword>
+      <keyword>count</keyword>
+      <keyword>linear</keyword>
+      <keyword>smooth</keyword>
+    </context>
+
+    <context id="standard" style-ref="standard">
+      <keyword>sphere</keyword>
+      <keyword>box</keyword>
+      <keyword>cylinder</keyword>
+      <keyword>capsule</keyword>
+      <keyword>cone</keyword>
+      <keyword>ellipsoid</keyword>
+      <keyword>torus</keyword>
+      <keyword>plane</keyword>
+      <keyword>revolve</keyword>
+      <keyword>sweep</keyword>
+      <keyword>checker</keyword>
+      <keyword>lean</keyword>
+    </context>
+
+    <context id="constant" style-ref="constant">
+      <keyword>pi</keyword>
+      <keyword>time</keyword>
+      <keyword>p</keyword>
+      <keyword>n</keyword>
+      <keyword>filmic</keyword>
+      <keyword>clamped</keyword>
+    </context>
+
+    <context id="kodanuki-sdf" class="no-spell-check">
+      <include>
+        <context ref="line-comment"/>
+        <context ref="block-comment"/>
+        <context ref="string"/>
+        <context ref="colour"/>
+        <context ref="number"/>
+        <context ref="keyword"/>
+        <context ref="join"/>
+        <context ref="modifier"/>
+        <context ref="block"/>
+        <context ref="material"/>
+        <context ref="coat"/>
+        <context ref="builtin"/>
+        <context ref="standard"/>
+        <context ref="constant"/>
+      </include>
+    </context>
+  </definitions>
+</language>

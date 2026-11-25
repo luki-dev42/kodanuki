@@ -26,11 +26,11 @@ const char* stoppingText = R"(
 		batch     = 8;
 	}
 
-	function sphere(r) {
+	surface sphere(r) {
 		return length(p) - r;
 	}
 
-	function box(size) {
+	surface box(size) {
 		let q = abs(p) - size / 2;
 		return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);
 	}

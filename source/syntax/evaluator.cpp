@@ -440,6 +440,9 @@ Value* findName(Evaluator& evaluator, const std::string& name) {
 			return found;
 		}
 	}
+	if (evaluator.isolated) {
+		return nullptr;
+	}
 	if (evaluator.tiled) {
 		evaluator.reads.insert(name);
 	}
@@ -467,16 +470,20 @@ std::optional<Value> builtinName(const Evaluator& evaluator, const std::string& 
 	return std::nullopt;
 }
 
-Value lookup(Evaluator& evaluator, const std::string& name) {
-	evaluator.timed = evaluator.timed || name == "time";
+Value lookup(Evaluator& evaluator, const Expression& expression) {
+	const std::string& name = expression.text;
+	evaluator.timed         = evaluator.timed || name == "time";
 	if (const Value* found = findName(evaluator, name)) {
 		return *found;
 	}
-	if (const Value* found = sharedName(evaluator, name)) {
+	if (const Value* found = evaluator.isolated ? nullptr : sharedName(evaluator, name)) {
 		return *found;
 	}
 	if (std::optional<Value> builtin = builtinName(evaluator, name)) {
 		return *builtin;
+	}
+	if (evaluator.isolated && (evaluator.scopes[0].contains(name) || sharedName(evaluator, name))) {
+		fail(expression.location, "a function sees only its parameters: '" + name + "'");
 	}
 	return Value {
 		.kind     = ValueKind::Word,
@@ -494,7 +501,8 @@ void bind(Evaluator& evaluator, const std::string& name, const Value& value) {
 		*found = value;
 		return;
 	}
-	evaluator.scopes[sharedName(evaluator, name) ? 0 : evaluator.scopes.size() - 1][name] = value;
+	const bool shared = !evaluator.isolated && sharedName(evaluator, name);
+	evaluator.scopes[shared ? 0 : evaluator.scopes.size() - 1][name] = value;
 }
 
 Value evaluateExpression(Evaluator& evaluator, const Expression& expression);
@@ -577,6 +585,7 @@ Value evaluateIndex(Evaluator& evaluator, const Expression& expression) {
 }
 
 Value evaluateCall(Evaluator& evaluator, const Expression& expression);
+Value evaluateComprehension(Evaluator& evaluator, const Expression& comprehension);
 
 Value evaluateExpression(Evaluator& evaluator, const Expression& expression) {
 	if (failed()) {
@@ -585,13 +594,14 @@ Value evaluateExpression(Evaluator& evaluator, const Expression& expression) {
 	switch (expression.kind) {
 		case ExpressionKind::Number: return numberValue(expression.number);
 		case ExpressionKind::Colour: return colourValue(expression.text);
-		case ExpressionKind::Name: return lookup(evaluator, expression.text);
+		case ExpressionKind::Name: return lookup(evaluator, expression);
 		case ExpressionKind::List: return evaluateList(evaluator, expression);
 		case ExpressionKind::Call: return evaluateCall(evaluator, expression);
 		case ExpressionKind::Index: return evaluateIndex(evaluator, expression);
 		case ExpressionKind::Member: return swizzle(evaluateExpression(evaluator, expression.items[0]), expression.text, expression.location);
 		case ExpressionKind::Unary: return evaluateUnary(evaluator, expression);
 		case ExpressionKind::Binary: return evaluateBinary(evaluator, expression);
+		case ExpressionKind::Comprehension: return evaluateComprehension(evaluator, expression);
 	}
 
 	return numberValue(0);
@@ -1204,29 +1214,35 @@ void bindParameters(Evaluator& evaluator, const Invocation& call) {
 
 void runDefinition(Evaluator& evaluator, const Invocation& call) {
 	const std::size_t savedBase = evaluator.base;
+	const bool savedIsolated    = evaluator.isolated;
 	evaluator.base              = evaluator.scopes.size();
+	evaluator.isolated          = call.definition.kind == StatementKind::Function;
 	evaluator.scopes.push_back(Scope {});
 	bindParameters(evaluator, call);
 	runBlock(evaluator, call.definition.body, call.context);
 	evaluator.scopes.resize(evaluator.base);
-	evaluator.base = savedBase;
+	evaluator.base     = savedBase;
+	evaluator.isolated = savedIsolated;
 }
 
 Value inlineFunction(Evaluator& evaluator, const Invocation& call) {
-	Compiler& compiler       = *evaluator.compiler;
-	const bool savedReturned = compiler.returned;
-	compiler.returned        = false;
+	const bool savedReturned = evaluator.returned;
+	evaluator.returned       = false;
 	runDefinition(evaluator, call);
-	if (!compiler.returned) {
+	if (!evaluator.returned) {
 		fail(call.definition.location, call.definition.text + " never returns");
 	}
-	compiler.returned = savedReturned;
-	return compiler.result;
+	evaluator.returned = savedReturned;
+	return evaluator.result;
+}
+
+bool isComputed(const Statement& definition) {
+	return definition.kind == StatementKind::Surface || definition.kind == StatementKind::Function;
 }
 
 const Statement* findFunction(const Evaluator& evaluator, const Expression& call) {
 	const auto found = evaluator.definitions.find(call.text);
-	if (found == evaluator.definitions.end() || found->second->kind != StatementKind::Function) {
+	if (found == evaluator.definitions.end() || !isComputed(*found->second)) {
 		fail(call.location, "unknown function '" + call.text + "'");
 		return nullptr;
 	}
@@ -1240,10 +1256,10 @@ Value callFunction(Evaluator& evaluator, const Call& call) {
 	}
 	const Statement& function = *found;
 	if (!call.arguments.named.empty()) {
-		fail(call.expression.location, "a function takes positional arguments");
+		fail(call.expression.location, function.text + " takes positional arguments");
 		return numberValue(0);
 	}
-	if (evaluator.compiler) {
+	if (evaluator.compiler || function.kind == StatementKind::Function) {
 		const Invocation invocation = {
 			.definition = function,
 			.arguments  = call.arguments.positional,
@@ -1507,7 +1523,7 @@ Relief reliefOf(const Value& value, const Location& location) {
 
 	const auto found = reliefs.find(value.word);
 	if (value.kind != ValueKind::Word || found == reliefs.end()) {
-		fail(location, "a bump's relief is grain, pits, streak or a function");
+		fail(location, "a bump's relief is grain, pits, streak or a surface");
 		return Relief::Grain;
 	}
 	return found->second;
@@ -1564,7 +1580,7 @@ Coat withEffect(Evaluator& evaluator, const Coat& base, const Expression& expres
 
 Albedo maskPattern(Evaluator& evaluator, const Value& value, const Location& location) {
 	if (value.kind != ValueKind::Pattern) {
-		fail(location, "a coat's mask reads a function");
+		fail(location, "a coat's mask reads a surface");
 		return colourAlbedo({ 0, 0, 0 });
 	}
 	return patternAlbedo(evaluator, *value.pattern);
@@ -2300,6 +2316,64 @@ std::vector<Value> loopValues(Evaluator& evaluator, const Expression& source) {
 	return list.items;
 }
 
+struct ComprehensionLevel {
+	const Expression& comprehension;
+	std::size_t level;
+};
+
+bool kept(Evaluator& evaluator, const Expression& comprehension) {
+	if (comprehension.text != "if") {
+		return true;
+	}
+	const Value condition = evaluateExpression(evaluator, comprehension.items.back());
+	if (condition.kind != ValueKind::Number || !isKnown(condition)) {
+		fail(comprehension.items.back().location, "a comprehension's condition must be known when the scene loads");
+		return false;
+	}
+	return condition.number != 0;
+}
+
+std::vector<Value> comprehendLevel(Evaluator& evaluator, const ComprehensionLevel& at);
+
+std::vector<Value> innerElements(Evaluator& evaluator, const ComprehensionLevel& at) {
+	if (at.level + 1 < at.comprehension.names.size()) {
+		const ComprehensionLevel next = {
+			.comprehension = at.comprehension,
+			.level         = at.level + 1,
+		};
+
+		return comprehendLevel(evaluator, next);
+	}
+	if (!kept(evaluator, at.comprehension)) {
+		return {};
+	}
+	return { evaluateExpression(evaluator, at.comprehension.items[0]) };
+}
+
+std::vector<Value> comprehendLevel(Evaluator& evaluator, const ComprehensionLevel& at) {
+	std::vector<Value> elements;
+	for (const Value& value : loopValues(evaluator, at.comprehension.items[at.level + 1])) {
+		const Scope bound = {
+			{ at.comprehension.names[at.level], value },
+		};
+
+		evaluator.scopes.push_back(bound);
+		const std::vector<Value> inner = innerElements(evaluator, at);
+		evaluator.scopes.pop_back();
+		elements.insert(elements.end(), inner.begin(), inner.end());
+	}
+	return elements;
+}
+
+Value evaluateComprehension(Evaluator& evaluator, const Expression& comprehension) {
+	const ComprehensionLevel first = {
+		.comprehension = comprehension,
+		.level         = 0,
+	};
+
+	return listValue(comprehendLevel(evaluator, first));
+}
+
 void runLoopLevel(Evaluator& evaluator, const LoopLevel& at, const Context& context) {
 	for (const Value& value : loopValues(evaluator, at.loop.expressions[at.level])) {
 		if (failed()) {
@@ -2361,8 +2435,8 @@ void mergeBranch(Evaluator& evaluator, const std::vector<Scope>& before, const O
 void runUnknownIf(Evaluator& evaluator, const Statement& branch, const Value& condition) {
 	const std::vector<Scope> before = evaluator.scopes;
 	runScoped(evaluator, branch.body, rootContext());
-	if (evaluator.compiler->returned) {
-		fail(branch.location, "a function may not return inside an if it cannot decide when loading");
+	if (evaluator.returned) {
+		fail(branch.location, "a surface or a function may not return inside an if it cannot decide when loading");
 	}
 
 	const Operation operands = {
@@ -2392,8 +2466,8 @@ void runIf(Evaluator& evaluator, const Statement& branch, const Context& context
 }
 
 void expectBuilding(const Evaluator& evaluator, const Statement& statement) {
-	if (evaluator.compiler) {
-		fail(statement.location, "a function only computes; shapes are emitted in a shape or at the top");
+	if (evaluator.compiler || evaluator.isolated) {
+		fail(statement.location, "a surface or a function only computes; shapes are emitted in a shape or at the top");
 	}
 }
 
@@ -2430,7 +2504,7 @@ void runCall(Evaluator& evaluator, const Statement& statement, const Context& co
 		return;
 	}
 	if (value.kind != ValueKind::Pattern) {
-		fail(call.location, "only a function or a shape can stand as a statement");
+		fail(call.location, "only a surface or a shape can stand as a statement");
 		return;
 	}
 	emitLeaf(evaluator, *value.pattern, context);
@@ -2644,7 +2718,7 @@ void runJoin(Evaluator& evaluator, const Statement& join, const Context& context
 
 void define(Evaluator& evaluator, const Statement& statement) {
 	if (evaluator.scopes.size() != 1) {
-		fail(statement.location, "function and shape are defined at the top of a file");
+		fail(statement.location, "surface, shape and function are defined at the top of a file");
 		return;
 	}
 	if (evaluator.definitions.contains(statement.text)) {
@@ -2655,12 +2729,12 @@ void define(Evaluator& evaluator, const Statement& statement) {
 }
 
 void runReturn(Evaluator& evaluator, const Statement& statement) {
-	if (!evaluator.compiler) {
-		fail(statement.location, "return belongs in a function");
+	if (!evaluator.compiler && !evaluator.isolated) {
+		fail(statement.location, "return belongs in a surface or a function");
 		return;
 	}
-	evaluator.compiler->result   = evaluateExpression(evaluator, statement.expressions[0]);
-	evaluator.compiler->returned = true;
+	evaluator.result   = evaluateExpression(evaluator, statement.expressions[0]);
+	evaluator.returned = true;
 }
 
 void runLet(Evaluator& evaluator, const Statement& statement) {
@@ -2700,7 +2774,8 @@ std::string statementRefusal(const Statement& statement) {
 	switch (statement.kind) {
 		case StatementKind::Import: return "import";
 		case StatementKind::Function:
-		case StatementKind::Shape: return "define a function or a shape";
+		case StatementKind::Surface:
+		case StatementKind::Shape: return "define a function, a surface or a shape";
 		case StatementKind::Setting: return "hold settings";
 		case StatementKind::Tiles: return "hold tiles";
 		default: break;
@@ -2906,7 +2981,7 @@ void runStatement(Evaluator& evaluator, const Statement& statement, const Contex
 	if (failed()) {
 		return;
 	}
-	if (evaluator.compiler && evaluator.compiler->returned) {
+	if (evaluator.returned) {
 		fail(statement.location, "nothing may follow a return");
 		return;
 	}
@@ -2916,8 +2991,9 @@ void runStatement(Evaluator& evaluator, const Statement& statement, const Contex
 		case StatementKind::For: return runLoop(evaluator, statement, context);
 		case StatementKind::If: return runIf(evaluator, statement, context);
 		case StatementKind::Return: return runReturn(evaluator, statement);
-		case StatementKind::Function: return define(evaluator, statement);
+		case StatementKind::Surface: return define(evaluator, statement);
 		case StatementKind::Shape: return define(evaluator, statement);
+		case StatementKind::Function: return define(evaluator, statement);
 		case StatementKind::Setting: return runSettingStatement(evaluator, statement);
 		case StatementKind::Place: return runPlace(evaluator, statement, context);
 		case StatementKind::Join: return runJoin(evaluator, statement, context);
@@ -3202,6 +3278,9 @@ LoadedScene loadScene(const std::string& path, double time) {
 		.shared          = nullptr,
 		.base            = 1,
 		.compiler        = nullptr,
+		.isolated        = false,
+		.returned        = false,
+		.result          = numberValue(0),
 		.specialised     = {},
 		.defaultMaterial = -1,
 		.timed           = false,
@@ -3281,6 +3360,9 @@ TileContent evaluatedTile(const Scene& scene, const TilePlace& place) {
 		.shared          = &snapshot.scope,
 		.base            = 1,
 		.compiler        = nullptr,
+		.isolated        = false,
+		.returned        = false,
+		.result          = numberValue(0),
 		.specialised     = {},
 		.defaultMaterial = snapshot.defaultMaterial,
 		.timed           = false,

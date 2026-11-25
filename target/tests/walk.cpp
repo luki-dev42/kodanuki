@@ -391,7 +391,7 @@ void checkScene(const char* path) {
 
 void checkExit() {
 	const SceneFile file = sceneOrExit(writeScene("ball", R"(
-		function sphere(r) {
+		surface sphere(r) {
 			return length(p) - r;
 		}
 
@@ -440,7 +440,7 @@ void checkExit() {
 
 void checkLawn() {
 	const SceneFile file = sceneOrExit(writeScene("lawn", R"(
-		function box(size) {
+		surface box(size) {
 			let q = abs(p) - size / 2;
 			return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);
 		}
@@ -494,7 +494,7 @@ void checkFar() {
 			fov    = 0.5;
 		}
 
-		function sphere(r) {
+		surface sphere(r) {
 			return length(p) - r;
 		}
 
@@ -554,7 +554,7 @@ int wrongLeaves(const Geometry& tree, const std::vector<Strip>& strips) {
 
 void checkStripe() {
 	const SceneFile file = sceneOrExit(writeScene("stripe", R"(
-		function box(size, r) {
+		surface box(size, r) {
 			let q = abs(p) - size / 2 + r;
 			return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0) - r;
 		}
@@ -586,7 +586,7 @@ void checkStripe() {
 
 void checkGable() {
 	const SceneFile file = sceneOrExit(writeScene("gable", R"(
-		function box(size, r) {
+		surface box(size, r) {
 			let q = abs(p) - size / 2 + r;
 			return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0) - r;
 		}
@@ -638,7 +638,7 @@ void checkBlend() {
 			fov    = 0.9;
 		}
 
-		function sphere(r) {
+		surface sphere(r) {
 			return length(p) - r;
 		}
 
@@ -685,7 +685,7 @@ std::vector<std::uint32_t> planeWords(float slope, float offset) {
 
 void checkEntryCrossing() {
 	const SceneFile file = sceneOrExit(writeScene("entry", R"(
-		function sphere(r) {
+		surface sphere(r) {
 			return length(p) - r;
 		}
 
@@ -774,7 +774,7 @@ void checkEntryCrossing() {
 
 void checkThinSolid() {
 	const SceneFile file = sceneOrExit(writeScene("thin", R"(
-		function box(size) {
+		surface box(size) {
 			let q = abs(p) - size / 2;
 			return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);
 		}
@@ -931,7 +931,7 @@ int leakedRays(const char* name, const char* text) {
 
 void checkContact() {
 	const int below = leakedRays("contact", R"(
-		function box(size) {
+		surface box(size) {
 			let q = abs(p) - size / 2;
 			return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);
 		}
@@ -941,7 +941,7 @@ void checkContact() {
 	)");
 
 	const int joined = leakedRays("contact-joined", R"(
-		function box(size) {
+		surface box(size) {
 			let q = abs(p) - size / 2;
 			return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);
 		}
@@ -1012,15 +1012,15 @@ void tallyLeg(SlabTally& tally, const LeafRun& run, const LeafRun& bare, const L
 
 void checkSlabLandings() {
 	const SceneFile file   = sceneOrExit(writeScene("slabs", R"(
-		function sphere(r) {
+		surface sphere(r) {
 			return length(p) - r;
 		}
 
-		function torus(big, small) {
+		surface torus(big, small) {
 			return length([length(p.xy) - big, p.z]) - small;
 		}
 
-		function box(size) {
+		surface box(size) {
 			let q = abs(p) - size / 2;
 			return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);
 		}

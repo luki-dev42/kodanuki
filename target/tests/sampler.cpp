@@ -180,11 +180,11 @@ const char* pairStart = R"(
 		samples   = 16;
 	}
 
-	function sphere(r) {
+	surface sphere(r) {
 		return length(p) - r;
 	}
 
-	function box(size) {
+	surface box(size) {
 		let q = abs(p) - size / 2;
 		return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);
 	}
