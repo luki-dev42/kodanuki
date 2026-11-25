@@ -2,6 +2,7 @@
 
 #include "core/frame.h"
 #include "plugins/geometry/tree/detail.h"
+#include "plugins/geometry/tree/lazy.h"
 #include "plugins/geometry/tree/pass.h"
 #include "plugins/geometry/tree/tree.h"
 #include "plugins/transport/paths/paths.h"
@@ -31,6 +32,7 @@ struct TestTree {
 };
 
 const char* writeScene(const char* name, const char* text);
+Tree openedTree(const LazyInput& input);
 Detail testDetail(const SceneFile& file, const Region& region, const std::vector<DetailMember>& members);
 TestTree testTree(const SceneFile& file, int workers);
 TestTree passedTestTree(const SceneFile& file, const std::vector<PassMember>& passes, int workers);

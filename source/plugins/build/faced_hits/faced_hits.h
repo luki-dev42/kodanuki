@@ -27,9 +27,15 @@ struct FacedFace {
 	 */
 	bool exact;
 	/**
-	 * The scene leaf a hit on an exact face paints.
+	 * The scene leaf a hit on an exact face paints, as how far it stands
+	 * from the least leaf of the painter's object (slotLeastLeaf()).
 	 */
 	std::uint32_t leaf;
+	/**
+	 * The program of the leaf's list whose object the leaf is of, as its
+	 * index in the list.
+	 */
+	std::uint32_t painter;
 	/**
 	 * The program of the leaf's list the face comes from alone, as its
 	 * index in the list, or 0xF where no one program gives it.
@@ -40,7 +46,11 @@ struct FacedFace {
 /**
  * Return the words the faced hits write after a run's table: a word of
  * owners (four bits a face), then up to three words of exact faces (an
- * 8-bit mask and the 24-bit scene leaf they paint). The leaf of a face is
+ * 8-bit mask, then the scene leaf they paint in 24 bits: the first
+ * program of the cell's list that names the leaf, 8 bits, and how far
+ * the leaf stands from its object's least leaf, 16 bits, so that the
+ * leaf follows the object when the scene lists it elsewhere). A face
+ * whose leaf does not fit is left to the field. The leaf of a face is
  * read by the field's own source rule at points of the face that lie on
  * the cell's surface; faces whose leaf is not one (pieces of several
  * leaves on one side, merged faces, duplicated surfaces, ties that are

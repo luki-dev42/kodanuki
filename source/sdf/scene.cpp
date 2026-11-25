@@ -49,6 +49,14 @@ double leafDistance(const Scene& scene, const Leaf& leaf, const Probe& probe) {
 	return evaluate(scene.programs[leaf.program], inputs, probe.registers) * leaf.placement.stretch;
 }
 
+const Leaf& sceneLeaf(const Scene& scene, std::uint32_t leaf) {
+	if (leaf < tileLeafBase) {
+		return scene.leaves[leaf];
+	}
+	const TileLeaf& held = scene.tileLeaves->leaves.data()[leaf - tileLeafBase];
+	return held.scene->leaves[held.leaf];
+}
+
 double nodeDistance(const Scene& scene, std::uint32_t index, const Probe& probe) {
 	const Node& node = scene.nodes[index];
 	if (node.join == Join::Leaf) {
@@ -90,8 +98,8 @@ struct Pair {
 Step binaryStep(Opcode opcode, std::uint32_t a, std::uint32_t b) {
 	return Step {
 		.opcode = opcode,
-		.a      = a,
-		.b      = b,
+		.a      = std::uint16_t(a),
+		.b      = std::uint16_t(b),
 		.c      = 0,
 		.value  = 0,
 		.leaf   = noLeaf,
@@ -199,7 +207,7 @@ std::uint32_t hardJoin(Builder& builder, Join join, const Pair& pair) {
 
 std::uint32_t smoothMinimum(Builder& builder, const Pair& pair, double radius) {
 	Step step = binaryStep(Opcode::SmoothMinimum, pair.a, pair.b);
-	step.c    = emitValue(builder, radius);
+	step.c    = std::uint16_t(emitValue(builder, radius));
 	return emitStep(builder, step);
 }
 
@@ -274,6 +282,9 @@ Builder namedBuilder(const std::string& name, std::uint32_t leaf) {
 Program namedNodeProgram(const Scene& scene, std::uint32_t node, const std::string& name) {
 	Builder builder        = namedBuilder(name, firstLeaf(scene, node));
 	builder.program.result = compileNode(builder, scene, node);
+	if (builder.program.steps.size() > mostProgramSteps) {
+		return builder.program;
+	}
 	return pruneProgram(builder.program);
 }
 
@@ -282,6 +293,10 @@ Program objectProgram(const Scene& scene, std::uint32_t object) {
 }
 
 Program leafProgram(const Scene& scene, std::uint32_t leaf) {
+	if (leaf >= tileLeafBase) {
+		const TileLeaf& held = scene.tileLeaves->leaves.data()[leaf - tileLeafBase];
+		return leafProgram(*held.scene, held.leaf);
+	}
 	Builder builder        = namedBuilder("leaf " + std::to_string(leaf), leaf);
 	builder.program.result = inlineLeaf(builder, scene, leaf);
 	return pruneProgram(builder.program);

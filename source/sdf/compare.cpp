@@ -1,16 +1,26 @@
 #include "sdf/compare.h"
 
 #include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <string>
 #include <vector>
 
 namespace kodanuki {
 
-std::vector<double> leafNumbers(const Leaf& leaf) {
+std::vector<double> placedNumbers(const Leaf& leaf) {
 	const Placement& place      = leaf.placement;
-	std::vector<double> numbers = { double(leaf.program), double(leaf.arguments), double(leaf.material), double(leaf.rules), place.stretch };
+	std::vector<double> numbers = { double(leaf.material), double(leaf.rules), place.stretch };
 	numbers.insert(numbers.end(), &place.linear[0][0], &place.linear[0][0] + 9);
 	numbers.insert(numbers.end(), place.origin, place.origin + 3);
 	numbers.insert(numbers.end(), leaf.coats.begin(), leaf.coats.end());
+	return numbers;
+}
+
+std::vector<double> leafNumbers(const Leaf& leaf) {
+	std::vector<double> numbers      = { double(leaf.program), double(leaf.arguments) };
+	const std::vector<double> placed = placedNumbers(leaf);
+	numbers.insert(numbers.end(), placed.begin(), placed.end());
 	return numbers;
 }
 
@@ -26,11 +36,110 @@ bool samePrograms(const std::vector<Program>& a, const std::vector<Program>& b) 
 	return std::equal(a.begin(), a.end(), b.begin(), b.end(), sameProgram);
 }
 
+bool sameSteps(const TileBlock& a, const TileBlock& b) {
+	const bool steps = a.step[0] == b.step[0] && a.step[1] == b.step[1] && a.step[2] == b.step[2];
+	return steps && std::equal(a.from, a.from + 3, b.from) && std::equal(a.to, a.to + 3, b.to);
+}
+
+bool sameTileLayout(const std::vector<TileBlock>& a, const std::vector<TileBlock>& b) {
+	return std::equal(a.begin(), a.end(), b.begin(), b.end(), sameSteps);
+}
+
+bool sameBinding(const TileBlock& a, const TileBlock& b, const std::string& name) {
+	const auto first  = a.bindings.find(name);
+	const auto second = b.bindings.find(name);
+	const bool absent = first == a.bindings.end();
+	return absent == (second == b.bindings.end()) && (absent || first->second == second->second);
+}
+
+bool sameTileBlock(const TileBlock& a, const TileBlock& b) {
+	if (a.source != b.source) {
+		return false;
+	}
+	return std::all_of(a.reads->names.begin(), a.reads->names.end(), [&](const std::string& name) {
+		return sameBinding(a, b, name);
+	});
+}
+
+bool sameTiles(const std::vector<TileBlock>& a, const std::vector<TileBlock>& b) {
+	return sameTileLayout(a, b) && std::equal(a.begin(), a.end(), b.begin(), b.end(), sameTileBlock);
+}
+
 bool sameShapes(const Scene& a, const Scene& b) {
 	const bool leaves = std::equal(a.leaves.begin(), a.leaves.end(), b.leaves.begin(), b.leaves.end(), sameLeaf);
 	const bool nodes  = std::equal(a.nodes.begin(), a.nodes.end(), b.nodes.begin(), b.nodes.end(), sameNode);
 	const bool held   = a.arguments == b.arguments && a.objects == b.objects && leaves && nodes;
-	return held && samePrograms(a.programs, b.programs) && samePrograms(a.objectPrograms, b.objectPrograms);
+	return held && samePrograms(a.programs, b.programs) && samePrograms(a.objectPrograms, b.objectPrograms) && sameTiles(a.tiles, b.tiles);
+}
+
+void carriedTiles(const Scene& before, Scene& next) {
+	if (sameTileLayout(before.tiles, next.tiles)) {
+		for (std::size_t block = 0; block < next.tiles.size(); ++block) {
+			next.tiles[block].reads = before.tiles[block].reads;
+		}
+	}
+	if (before.tileLeaves && next.tileLeaves) {
+		next.tileLeaves = before.tileLeaves;
+	}
+}
+
+std::uint64_t mixedKey(std::uint64_t key, std::uint64_t word) {
+	const std::uint64_t mixed = (key ^ word) * 0x9E3779B97F4A7C15ull;
+	return mixed ^ (mixed >> 29);
+}
+
+std::uint64_t leafKey(std::uint64_t key, const Leaf& leaf) {
+	std::uint64_t mixed = mixedKey(key, leaf.groups);
+	for (const double number : placedNumbers(leaf)) {
+		mixed = mixedKey(mixed, std::bit_cast<std::uint64_t>(number));
+	}
+	return mixed;
+}
+
+std::uint64_t stepKey(std::uint64_t key, const Step& step, std::uint32_t leaf) {
+	const std::uint64_t operands = std::uint64_t(step.opcode) | std::uint64_t(step.a) << 16 | std::uint64_t(step.b) << 32 | std::uint64_t(step.c) << 48;
+	return mixedKey(mixedKey(mixedKey(key, operands), std::bit_cast<std::uint64_t>(step.value)), leaf);
+}
+
+std::uint64_t headKey(const Program& program) {
+	return mixedKey(program.steps.size(), std::uint64_t(program.result) << 32 | program.arguments);
+}
+
+std::uint64_t programKey(const Program& program) {
+	std::uint64_t key = headKey(program);
+	for (const Step& step : program.steps) {
+		key = stepKey(key, step, step.leaf);
+	}
+	return key;
+}
+
+std::uint32_t leastLeaf(const Program& program) {
+	std::uint32_t least = noLeaf;
+	for (const Step& step : program.steps) {
+		least = std::min(least, step.leaf);
+	}
+	return least;
+}
+
+std::uint64_t objectKey(const Scene& scene, std::uint32_t object) {
+	const Program& program    = scene.objectPrograms[object];
+	const std::uint32_t least = leastLeaf(program);
+	std::uint64_t key         = headKey(program);
+	std::uint32_t named       = noLeaf;
+	for (const Step& step : program.steps) {
+		key   = stepKey(key, step, step.leaf == noLeaf ? noLeaf : step.leaf - least);
+		key   = step.leaf != named && step.leaf != noLeaf ? leafKey(key, scene.leaves[step.leaf]) : key;
+		named = step.leaf;
+	}
+	return key;
+}
+
+std::vector<std::uint64_t> objectKeys(const Scene& scene) {
+	std::vector<std::uint64_t> keys;
+	for (std::uint32_t object = 0; object < scene.objectPrograms.size(); ++object) {
+		keys.push_back(objectKey(scene, object));
+	}
+	return keys;
 }
 
 std::vector<double> colourNumbers(const Colour& colour) {

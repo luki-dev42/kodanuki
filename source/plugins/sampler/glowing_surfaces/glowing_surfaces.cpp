@@ -1,7 +1,7 @@
 #include "plugins/sampler/glowing_surfaces/glowing_surfaces.h"
 
-#include "plugins/geometry/tree/cut.h"
-#include "plugins/geometry/tree/hit.h"
+#include "plugins/geometry/tree/boxes.h"
+#include "plugins/geometry/tree/reach.h"
 
 #include <algorithm>
 #include <cmath>
@@ -9,6 +9,10 @@
 #include <memory>
 
 namespace kodanuki {
+
+constexpr int finerLevels           = 2;
+constexpr int deepestGrid           = 21;
+constexpr std::uint64_t noGridPlace = ~std::uint64_t(0);
 
 struct FoundCell {
 	std::uint64_t place;
@@ -21,7 +25,6 @@ struct FoundCell {
 struct GlowSources {
 	std::vector<double> leaves;
 	std::vector<double> objects;
-	std::vector<double> cuts;
 };
 
 struct GridGathering {
@@ -97,14 +100,6 @@ std::vector<double> programGlows(const std::vector<Program>& programs, const std
 	return glows;
 }
 
-std::vector<double> cutGlows(const Geometry& geometry, const std::vector<double>& leaves) {
-	std::vector<double> glows;
-	for (std::uint32_t cut = 0; cut < treeOf(geometry).cuts.size(); ++cut) {
-		glows.push_back(stepsGlow(keptStepsOf(geometry.scene, treeOf(geometry), cut), leaves));
-	}
-	return glows;
-}
-
 GlowSources glowSources(const Geometry& geometry, const Looks& looks) {
 	std::vector<double> leaves;
 	for (const Leaf& leaf : geometry.scene.leaves) {
@@ -113,7 +108,6 @@ GlowSources glowSources(const Geometry& geometry, const Looks& looks) {
 	return GlowSources {
 		.leaves  = leaves,
 		.objects = programGlows(geometry.scene.objectPrograms, leaves),
-		.cuts    = cutGlows(geometry, leaves),
 	};
 }
 
@@ -121,17 +115,6 @@ bool anyGlow(const GlowSources& sources) {
 	return std::any_of(sources.leaves.begin(), sources.leaves.end(), [](double glow) {
 		return glow > 0;
 	});
-}
-
-double listGlow(const Geometry& geometry, const GlowSources& sources, std::uint32_t list) {
-	const ProgramList& programs = treeOf(geometry).lists[list];
-	double brightest            = 0;
-	for (std::uint32_t k = 0; k < programs.count; ++k) {
-		const ProgramReference& reference = treeOf(geometry).references[programs.first + k];
-		const std::vector<double>& glows  = reference.source == ProgramSource::Object ? sources.objects : sources.cuts;
-		brightest                         = std::max(brightest, glows[reference.index]);
-	}
-	return brightest;
 }
 
 double sourcedGlow(const GlowSources& sources, const Sourced& sourced) {
@@ -164,33 +147,22 @@ GlowCells gridOf(const Geometry& geometry, int depth) {
 	return glows;
 }
 
-double objectValue(const Program& program, const math::Vector& point) {
-	thread_local std::vector<double> registers;
-
-	const Inputs<double> inputs = {
-		.arguments = nullptr,
-		.p         = { point.x, point.y, point.z },
-		.n         = { 0, 0, 0 },
+math::Interval spanAround(double middle, double half) {
+	return math::Interval {
+		.lower = middle - half,
+		.upper = middle + half,
 	};
-
-	return evaluateKept(wholeSteps(program), inputs, registers);
 }
 
-void keepGridCell(const GridGathering& gathering, std::uint32_t list, const std::uint32_t* place) {
-	const CellBox box         = gridBox(gridOf(gathering.geometry, gathering.depth), place);
-	const double point[3]     = { box.middle.x, box.middle.y, box.middle.z };
-	const math::Vector toward = { 0, 0, 1 };
-
-	const FieldQuery query = {
-		.geometry = gathering.geometry,
-		.list     = list,
-		.point    = point,
-		.toward   = toward,
-		.inset    = 0,
-		.beyond   = true,
+Box gridCellBox(const CellBox& box) {
+	return Box {
+		.axes = { spanAround(box.middle.x, box.half.x), spanAround(box.middle.y, box.half.y), spanAround(box.middle.z, box.half.z) },
 	};
+}
 
-	const Sourced sourced = surfaceAt(query);
+void keepGridCell(const GridGathering& gathering, const std::vector<std::uint32_t>& near, const std::uint32_t* place) {
+	const CellBox box     = gridBox(gridOf(gathering.geometry, gathering.depth), place);
+	const Sourced sourced = objectsSurface(gathering.geometry.scene, objectsMeeting(gathering.geometry, near, gridCellBox(box)), box.middle);
 	const double guess    = sourcedGlow(gathering.sources, sourced);
 	if (!(std::abs(sourced.value) <= math::length(box.half)) || !(guess > 0)) {
 		return;
@@ -207,30 +179,52 @@ void keepGridCell(const GridGathering& gathering, std::uint32_t list, const std:
 	gathering.found.push_back(found);
 }
 
-void keepCoveredCells(const GridGathering& gathering, std::uint32_t list, const PlacedLeaf& leaf) {
-	const int shift          = gathering.depth - leaf.level;
-	const std::uint32_t side = std::uint32_t(1) << shift;
+double gridCellSide(const GridGathering& gathering, int axis) {
+	return std::ldexp(treeOf(gathering.geometry).region.size[axis], -gathering.depth);
+}
+
+std::uint32_t firstGridStep(const GridGathering& gathering, const Box& box, int axis) {
+	const double side   = gridCellSide(gathering, axis);
+	const double inside = box.axes[axis].lower + 0.5 * std::min(side, box.axes[axis].upper - box.axes[axis].lower);
+	return std::uint32_t((inside - treeOf(gathering.geometry).region.lower[axis]) / side);
+}
+
+void keepCoveredCells(const GridGathering& gathering, const std::vector<std::uint32_t>& near, const Box& box) {
+	const std::uint32_t side     = std::uint32_t(std::max(1.0, std::round((box.axes[0].upper - box.axes[0].lower) / gridCellSide(gathering, 0))));
+	const std::uint32_t first[3] = { firstGridStep(gathering, box, 0), firstGridStep(gathering, box, 1), firstGridStep(gathering, box, 2) };
 	for (std::uint32_t k = 0; k < side * side * side; ++k) {
-		const std::uint32_t place[3] = { (leaf.place[0] << shift) + k % side, (leaf.place[1] << shift) + k / side % side, (leaf.place[2] << shift) + k / (side * side) };
-		keepGridCell(gathering, list, place);
+		const std::uint32_t place[3] = { first[0] + k % side, first[1] + k / side % side, first[2] + k / (side * side) };
+		keepGridCell(gathering, near, place);
 	}
 }
 
-void gatherGridLeaf(const GridGathering& gathering, const PlacedLeaf& leaf) {
-	if (leaf.entry.kind != CellKind::Surface) {
+Box coveredHull(const GridGathering& gathering, const std::vector<Box>& boxes) {
+	Box hull = nothingBox();
+	for (const Box& box : boxes) {
+		hull = boxHull(hull, box);
+	}
+	const double side[3] = { gridCellSide(gathering, 0), gridCellSide(gathering, 1), gridCellSide(gathering, 2) };
+	for (int axis = 0; axis < 3 && !boxEmpty(hull); ++axis) {
+		hull.axes[axis] = spanAround(0.5 * (hull.axes[axis].lower + hull.axes[axis].upper), 0.5 * (hull.axes[axis].upper - hull.axes[axis].lower) + side[axis]);
+	}
+	return hull;
+}
+
+void gatherGridObject(const GridGathering& gathering, std::uint32_t object) {
+	if (!(gathering.sources.objects[object] > 0)) {
 		return;
 	}
-	const std::uint32_t list = treeOf(gathering.geometry).surfaces[leaf.entry.payload].programs;
-	if (!(listGlow(gathering.geometry, gathering.sources, list) > 0)) {
-		return;
+	const std::vector<Box> boxes          = fieldBoxes(gathering.geometry.scene.objectPrograms[object], treeOf(gathering.geometry).region, gathering.depth + finerLevels);
+	const std::vector<std::uint32_t> near = objectsMeeting(gathering.geometry, everyObject(gathering.geometry.scene), coveredHull(gathering, boxes));
+	std::uint64_t last                    = noGridPlace;
+	for (const Box& box : boxes) {
+		const std::uint32_t first[3] = { firstGridStep(gathering, box, 0), firstGridStep(gathering, box, 1), firstGridStep(gathering, box, 2) };
+		if (gridPlace(gathering.depth, first) == last) {
+			continue;
+		}
+		last = gridPlace(gathering.depth, first);
+		keepCoveredCells(gathering, near, box);
 	}
-	if (leaf.level < gathering.depth) {
-		keepCoveredCells(gathering, list, leaf);
-		return;
-	}
-	const int shift              = leaf.level - gathering.depth;
-	const std::uint32_t place[3] = { leaf.place[0] >> shift, leaf.place[1] >> shift, leaf.place[2] >> shift };
-	keepGridCell(gathering, list, place);
 }
 
 std::vector<FoundCell> mergedCells(std::vector<FoundCell> found) {
@@ -264,77 +258,22 @@ GlowCells keptCells(const GlowCells& empty, const std::vector<FoundCell>& found)
 	return glows;
 }
 
-struct FieldBox {
-	math::Vector lower;
-	math::Vector upper;
-};
-
 constexpr int ballLevels = 10;
 
-constexpr std::size_t ballMostBoxes = 100000;
-
-std::vector<FieldBox> keptBoxes(const Program& program, const std::vector<FieldBox>& boxes) {
-	std::vector<FieldBox> kept;
-	for (const FieldBox& box : boxes) {
-		const math::Vector middle = (box.lower + box.upper) * 0.5;
-		if (std::abs(objectValue(program, middle)) <= 0.5 * math::length(box.upper - box.lower)) {
-			kept.push_back(box);
-		}
-	}
-	return kept;
-}
-
-std::vector<FieldBox> halvedBoxes(const std::vector<FieldBox>& boxes) {
-	std::vector<FieldBox> halved;
-	for (const FieldBox& box : boxes) {
-		const math::Vector middle = (box.lower + box.upper) * 0.5;
-		for (int k = 0; k < 8; ++k) {
-			const FieldBox part = {
-				.lower = { k & 1 ? middle.x : box.lower.x, k & 2 ? middle.y : box.lower.y, k & 4 ? middle.z : box.lower.z },
-				.upper = { k & 1 ? box.upper.x : middle.x, k & 2 ? box.upper.y : middle.y, k & 4 ? box.upper.z : middle.z },
-			};
-
-			halved.push_back(part);
-		}
-	}
-	return halved;
-}
-
-std::vector<FieldBox> objectBoxes(const Geometry& geometry, std::uint32_t object) {
-	const Region& region   = treeOf(geometry).region;
-	const Program& program = geometry.scene.objectPrograms[object];
-	const math::Vector low = { region.lower[0], region.lower[1], region.lower[2] };
-
-	const FieldBox whole = {
-		.lower = low,
-		.upper = low + math::Vector { region.size[0], region.size[1], region.size[2] },
-	};
-
-	std::vector<FieldBox> boxes = { whole };
-	for (int level = 0; level < ballLevels; ++level) {
-		const std::vector<FieldBox> kept = keptBoxes(program, boxes);
-		if (kept.size() * 8 > ballMostBoxes) {
-			return kept;
-		}
-		boxes = halvedBoxes(kept);
-	}
-	return keptBoxes(program, boxes);
-}
-
-math::Vector boxesMiddle(const std::vector<FieldBox>& boxes) {
+math::Vector boxesMiddle(const std::vector<Box>& boxes) {
 	math::Vector lower = { 1e300, 1e300, 1e300 };
 	math::Vector upper = { -1e300, -1e300, -1e300 };
-	for (const FieldBox& box : boxes) {
-		lower = { std::min(lower.x, box.lower.x), std::min(lower.y, box.lower.y), std::min(lower.z, box.lower.z) };
-		upper = { std::max(upper.x, box.upper.x), std::max(upper.y, box.upper.y), std::max(upper.z, box.upper.z) };
+	for (const Box& box : boxes) {
+		lower = { std::min(lower.x, box.axes[0].lower), std::min(lower.y, box.axes[1].lower), std::min(lower.z, box.axes[2].lower) };
+		upper = { std::max(upper.x, box.axes[0].upper), std::max(upper.y, box.axes[1].upper), std::max(upper.z, box.axes[2].upper) };
 	}
 	return (lower + upper) * 0.5;
 }
 
-double boxesReach(const std::vector<FieldBox>& boxes, const math::Vector& centre) {
+double boxesReach(const std::vector<Box>& boxes, const math::Vector& centre) {
 	double radius = 0;
-	for (const FieldBox& box : boxes) {
-		const math::Vector far = { std::max(std::abs(box.lower.x - centre.x), std::abs(box.upper.x - centre.x)), std::max(std::abs(box.lower.y - centre.y), std::abs(box.upper.y - centre.y)), std::max(std::abs(box.lower.z - centre.z), std::abs(box.upper.z - centre.z)) };
+	for (const Box& box : boxes) {
+		const math::Vector far = { std::max(std::abs(box.axes[0].lower - centre.x), std::abs(box.axes[0].upper - centre.x)), std::max(std::abs(box.axes[1].lower - centre.y), std::abs(box.axes[1].upper - centre.y)), std::max(std::abs(box.axes[2].lower - centre.z), std::abs(box.axes[2].upper - centre.z)) };
 		radius                 = std::max(radius, math::length(far));
 	}
 	return radius;
@@ -344,7 +283,7 @@ GlowCells withGlowBalls(const Geometry& geometry, const Looks& looks, const Glow
 	const GlowSources sources = glowSources(geometry, looks);
 	GlowCells glows           = cells;
 	for (std::uint32_t object = 0; object < sources.objects.size(); ++object) {
-		const std::vector<FieldBox> boxes = sources.objects[object] > 0 ? objectBoxes(geometry, object) : std::vector<FieldBox> {};
+		const std::vector<Box> boxes = sources.objects[object] > 0 ? fieldBoxes(geometry.scene.objectPrograms[object], treeOf(geometry).region, ballLevels + grownLevels(treeOf(geometry))) : std::vector<Box> {};
 		if (boxes.empty()) {
 			continue;
 		}
@@ -356,7 +295,8 @@ GlowCells withGlowBalls(const Geometry& geometry, const Looks& looks, const Glow
 	return glows;
 }
 
-GlowCells gatheredGlowGrid(const Geometry& geometry, const Looks& looks, int depth) {
+GlowCells gatheredGlowGrid(const Geometry& geometry, const Looks& looks, int levels) {
+	const int depth           = std::min(levels + grownLevels(treeOf(geometry)), deepestGrid);
 	const GlowSources sources = glowSources(geometry, looks);
 	if (!anyGlow(sources)) {
 		return noGlowCells();
@@ -370,8 +310,8 @@ GlowCells gatheredGlowGrid(const Geometry& geometry, const Looks& looks, int dep
 		.found    = found,
 	};
 
-	for (const PlacedLeaf& leaf : placedLeaves(treeOf(geometry))) {
-		gatherGridLeaf(gathering, leaf);
+	for (std::uint32_t object = 0; object < sources.objects.size(); ++object) {
+		gatherGridObject(gathering, object);
 	}
 	return keptCells(gridOf(geometry, depth), found);
 }

@@ -92,13 +92,17 @@ MirrorBalls noMirrorBalls();
  * Bound every scene leaf that may wear a sharp material, by its own
  * material or a coat's, unless it refuses caustics.
  *
- * Each is bounded by the box of the cells, inside the tree's leaves
- * whose programs name it, where it comes within its own blend reach (the
- * widest blend among the joins above it) and one stray of zero. A leaf
+ * Each is bounded by the box of the cells, inside the boxes the surface
+ * of an object that names it may pass through (fieldBoxes() at six
+ * halvings, plugins/geometry/tree/reach.h), where it comes within its
+ * own blend reach (the widest blend among the joins above it) and what
+ * the tree lets the surface there stray (looseStray()) of zero. A box
  * is taken in its eighths until no cell is wider than the region's
  * widest side over 2^12. The box is held in the ball about its middle.
+ * The objects' fields are read, not the tree's leaves, so the balls do
+ * not depend on which of the tree's cells rays have entered.
  *
- * @param geometry The tree and the scene.
+ * @param geometry The tree, for its region and tolerance, and the scene.
  * @param looks The scene's looks: its materials and coats.
  * @param materials The finishes, which say what is sharp.
  */

@@ -23,7 +23,11 @@ Read `task_code.md` first, then the points in
    `PassMember` (geometry/tree/pass.h), `StrategyMember`,
    `SamplerMember`, `FeatureMember` (transport/paths/strategy.h,
    sampler.h, feature.h). Its per-path state is a field of
-   `Companions`.
+   `Companions`. A Build member runs on each node of the tree as a ray's
+   walk builds it, so what it shares it shares within that node. A
+   plugin that needs to know where objects are reads their fields
+   (`fieldBoxes()`, geometry/tree/reach.h), not the tree, which holds
+   only the cells rays entered.
 4. **Switch.** Name it in the `--use` key of its point (`useKeys()`,
    core/options.cpp) and in `target/workflow.py`: in `KEYS` or
    `LOOP_KEYS` with the key, and in `OFF` where it is off by default;
@@ -49,7 +53,7 @@ Read `task_code.md` first, then the points in
 (`reference.toml`'s plugins) and with `geometry/tree`, then checks:
 
 - **Geometry:** `geometry/tree` with every Detail and Build member, and
-  with each alone, meets what `geometry/sphere_trace` meets within the
+  with each alone, every cell built (`openEveryCell()`), meets what `geometry/sphere_trace` meets within the
   tolerance; its frame keeps the reference's mean.
 - **Execution, Backend:** `execution/packets`, and a backend that owns
   no kernels (alone and beside `backend/cpu`), keep the mean.

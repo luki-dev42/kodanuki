@@ -1,4 +1,5 @@
 #include "plugins/geometry/tree/walk.h"
+#include "plugins/geometry/tree/lazy.h"
 #include "plugins/geometry/tree/span.h"
 
 #include <cstdint>
@@ -17,7 +18,7 @@ Met walkSlot(const Walker& walker, const CellEntry& entry, const CellSpan& span)
 		case CellKind::Empty: return missedMet();
 		case CellKind::Filled: return walker.ray.inside ? missedMet() : solidMet(walker, entry.payload, span);
 		case CellKind::Surface: return surfaceMet(walker, entry.payload, span);
-		case CellKind::Branch: return walkNode(walker, treeOf(walker.geometry).nodes[entry.payload], span);
+		case CellKind::Branch: return walkNode(walker, treeOf(walker.geometry).nodes[enteredNode(walker.geometry, entry.payload, walker.ray.sharp != 0)], span);
 	}
 
 	return missedMet();

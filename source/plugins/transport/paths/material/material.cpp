@@ -298,7 +298,7 @@ math::Vector placedVector(const Placement& placement, const math::Vector& v, boo
 
 double patternAt(const PatternSpot& spot, const Albedo& source, std::vector<double>& registers) {
 	const bool local        = !source.world && spot.leaf != noLeaf;
-	const Placement& placed = spot.scene.leaves[local ? spot.leaf : 0].placement;
+	const Placement& placed = sceneLeaf(spot.scene, local ? spot.leaf : 0).placement;
 	const math::Vector p    = local ? placedVector(placed, spot.point, true) : spot.point;
 	const math::Vector n    = local ? math::normalized(placedVector(placed, spot.normal, false)) : spot.normal;
 
@@ -319,7 +319,7 @@ Colour albedoAt(const PatternSpot& spot, const Albedo& albedo, std::vector<doubl
 }
 
 std::uint32_t materialOfLeaf(const Scene& scene, std::uint32_t leaf) {
-	return leaf == noLeaf ? 0 : scene.leaves[leaf].material;
+	return leaf == noLeaf ? 0 : sceneLeaf(scene, leaf).material;
 }
 
 Colour glowOf(const Material& material) {

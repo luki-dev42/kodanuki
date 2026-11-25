@@ -3,11 +3,22 @@
 #include "core/render.h"
 #include "plugins/geometry/sphere_trace/sphere_trace.h"
 
+#include <memory>
+
 namespace kodanuki {
+
+SphereWorld* keptWorld(Renderer& renderer) {
+	if (!stateOf(renderer, "geometry/sphere_trace")) {
+		keptState(renderer, "geometry/sphere_trace", std::make_shared<SphereWorld>(openWorld(renderer.file.scene)));
+	}
+	return static_cast<SphereWorld*>(stateOf(renderer, "geometry/sphere_trace"));
+}
 
 Geometry sphereBuilt(Renderer& renderer) {
 	const Choices& choices = renderer.options.choices;
-	return sphereGeometry(renderer.file.scene, choices.framed ? choices.region : reachRegion(renderer.file.shot));
+	SphereWorld& world     = *keptWorld(renderer);
+	world                  = shotWorld(renderer.file.scene, renderer.file.shot);
+	return sphereGeometry(renderer.file.scene, choices.framed ? choices.region : reachRegion(renderer.file.shot), world);
 }
 
 Plugin geometrySphereTracePlugin() {

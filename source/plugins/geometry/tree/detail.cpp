@@ -12,7 +12,7 @@
 
 namespace kodanuki {
 
-constexpr double leastShare     = 1e-4;
+constexpr double leastShare     = 1e-7;
 constexpr double usualShare     = 0.08;
 constexpr double usualNoise     = 7;
 constexpr double leastNoise     = 1e-9;
@@ -23,14 +23,6 @@ DetailAnswer shareAnswer(double share) {
 	return DetailAnswer {
 		.share   = share,
 		.limit   = std::numeric_limits<double>::infinity(),
-		.verdict = Verdict::Keep,
-	};
-}
-
-DetailAnswer limitAnswer(double limit) {
-	return DetailAnswer {
-		.share   = 0,
-		.limit   = limit,
 		.verdict = Verdict::Keep,
 	};
 }
@@ -75,7 +67,6 @@ DetailAnswer answerDetail(DetailMember member, const Detail& detail, const Detai
 	switch (member) {
 		case DetailMember::ByDistance: return shareAnswer(detail.share);
 		case DetailMember::FocusOnView: return shareAnswer(focusOnViewShare(detail.screen, query.box));
-		case DetailMember::Pilot: return limitAnswer(pilotLimit(detail.pilot, query.box, detail.share));
 		case DetailMember::SplitHiddenPrimitives: return hiddenAnswer(detail, query);
 		case DetailMember::SplitCrowdedLeaves: return crowdedAnswer(query);
 	}
@@ -87,7 +78,7 @@ bool hasMember(const Detail& detail, DetailMember member) {
 	return std::find(detail.members.begin(), detail.members.end(), member) != detail.members.end();
 }
 
-double cellTolerance(const Detail& detail, const Box& box) {
+double foldedTolerance(const Detail& detail, const Box& box, bool sharp) {
 	if (!hasMember(detail, DetailMember::ByDistance)) {
 		return detail.least;
 	}
@@ -104,11 +95,22 @@ double cellTolerance(const Detail& detail, const Box& box) {
 	double share = 0;
 	double limit = std::numeric_limits<double>::infinity();
 	for (const DetailMember member : detail.members) {
+		if (sharp && member == DetailMember::FocusOnView) {
+			continue;
+		}
 		const DetailAnswer answer = answerDetail(member, detail, query);
 		share                     = std::max(share, answer.share);
 		limit                     = std::min(limit, answer.limit);
 	}
 	return std::max(detail.least, std::min(share * footprintOver(detail.view, box), limit));
+}
+
+double cellTolerance(const Detail& detail, const Box& box) {
+	return foldedTolerance(detail, box, false);
+}
+
+double sharpTolerance(const Detail& detail, const Box& box) {
+	return foldedTolerance(detail, box, true);
 }
 
 math::Interval pointSpan(double x) {
@@ -226,11 +228,11 @@ double footprintShare(double noise) {
 }
 
 std::vector<DetailMember> defaultDetailMembers() {
-	return { DetailMember::ByDistance, DetailMember::FocusOnView, DetailMember::Pilot, DetailMember::SplitHiddenPrimitives, DetailMember::SplitCrowdedLeaves };
+	return { DetailMember::ByDistance, DetailMember::FocusOnView, DetailMember::SplitHiddenPrimitives, DetailMember::SplitCrowdedLeaves };
 }
 
 std::optional<DetailMember> detailMemberNamed(const std::string& name) {
-	const std::array<std::string, 5> names = { "by_distance", "focus_on_view", "pilot", "split_hidden_primitives", "split_crowded_leaves" };
+	const std::array<std::string, 4> names = { "by_distance", "focus_on_view", "split_hidden_primitives", "split_crowded_leaves" };
 	for (std::size_t k = 0; k < names.size(); ++k) {
 		if (names[k] == name) {
 			return DetailMember(k);
@@ -243,6 +245,14 @@ double longestSide(const Region& region) {
 	return std::max({ region.size[0], region.size[1], region.size[2] });
 }
 
+Detail viewedDetail(const Detail& detail, const Shot& shot) {
+	Detail viewed = detail;
+	viewed.view   = sceneView(shot);
+	viewed.share  = footprintShare(shot.render.tolerance);
+	viewed.screen = hasMember(detail, DetailMember::FocusOnView) ? frameScreen(viewed.view) : emptyScreen();
+	return viewed;
+}
+
 Detail sceneDetail(const SceneDetailQuery& query) {
 	const View view = sceneView(query.shot);
 
@@ -252,7 +262,6 @@ Detail sceneDetail(const SceneDetailQuery& query) {
 		.least   = leastShare * longestSide(query.region),
 		.share   = footprintShare(query.shot.render.tolerance),
 		.screen  = emptyScreen(),
-		.pilot   = unmeasuredPilot(query.region),
 		.hidden  = noHiddenPrimitives(),
 	};
 

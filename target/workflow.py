@@ -15,7 +15,7 @@ PACKED = not (TARGET / 'CMakeLists.txt').exists()
 BINARIES = ROOT / 'bin' if PACKED else OUTPUT
 VERSION = '0.0.3'
 USAGE = 'usage: workflow.py test|render|viewer|export|clean scene.sdf config.toml'
-NUMBERS = ('tolerance', 'margin', 'samples', 'batch', 'split', 'surfaces', 'collisions', 'seed', 'threads')
+NUMBERS = ('tolerance', 'margin', 'samples', 'batch', 'split', 'surfaces', 'collisions', 'seed', 'threads', 'memory')
 SETTINGS = ('width', 'height', 'faces', 'smooth_glass', 'glow_balls') + NUMBERS
 VIEWER = ('internal_width', 'internal_height')
 KEYS = {
@@ -23,8 +23,8 @@ KEYS = {
     'execution': ('single', 'packets'),
     'backend': ('cpu',),
     'stopping': ('fixed_count', 'confidence_interval'),
-    'detail': ('focus_on_view', 'pilot', 'split_hidden_primitives', 'split_crowded_leaves'),
-    'build': ('split_beside_finer', 'cut_long_programs', 'face_slabs', 'shared_coefficients', 'shared_subtrees'),
+    'detail': ('focus_on_view', 'split_hidden_primitives', 'split_crowded_leaves'),
+    'build': ('cut_long_programs', 'face_slabs', 'shared_coefficients'),
     'strategy': ('join',),
     'sampler': ('sobol', 'highlight_guide', 'each_lamp_first', 'sky_map', 'glowing_surfaces', 'toward_mirrors'),
 }

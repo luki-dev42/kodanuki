@@ -53,7 +53,7 @@ double cutShare() {
 }
 
 std::size_t wholeCount(const Cutting& cutting, std::uint32_t object) {
-	return cutting.context.scene.objectPrograms[object].steps.size();
+	return slotProgram(cutting.context.scene, cutting.context.slots, object).steps.size();
 }
 
 bool cutsObject(const Cutting& cutting, std::uint32_t object) {
@@ -61,7 +61,7 @@ bool cutsObject(const Cutting& cutting, std::uint32_t object) {
 }
 
 KeptSteps carriedSteps(const Cutting& cutting, const CarriedCut& carried) {
-	const Program& whole = cutting.context.scene.objectPrograms[carried.object];
+	const Program& whole = slotProgram(cutting.context.scene, cutting.context.slots, carried.object);
 	if (!carried.entries) {
 		return wholeSteps(whole);
 	}

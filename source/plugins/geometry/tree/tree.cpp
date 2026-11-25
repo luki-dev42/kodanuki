@@ -1,4 +1,5 @@
 #include "plugins/geometry/tree/tree.h"
+#include "plugins/geometry/tree/lazy.h"
 #include "plugins/geometry/tree/patch.h"
 
 #include <algorithm>
@@ -152,13 +153,13 @@ struct Counting {
 	TreeStats& stats;
 };
 
-void countNode(const Counting& counting, const PackedNode& node);
+void countBranch(const Counting& counting, std::uint32_t node);
 
 void countCell(const Counting& counting, const PackedNode& node, int slot) {
 	const CellKind kind = slotKind(node, slot);
 	counting.stats.empty += kind == CellKind::Empty ? 1 : 0;
 	if (kind == CellKind::Branch) {
-		countNode(counting, counting.tree.nodes[slotPayload(node, slot)]);
+		countBranch(counting, slotPayload(node, slot));
 	}
 }
 
@@ -175,6 +176,13 @@ void countNode(const Counting& counting, const PackedNode& node) {
 		for (int octant = 0; octant < 8; ++octant) {
 			countCell(counting, node, child * 8 + octant);
 		}
+	}
+}
+
+void countBranch(const Counting& counting, std::uint32_t node) {
+	const std::uint32_t standing = standingNode(counting.tree, node);
+	if (standing != noNode) {
+		countNode(counting, counting.tree.nodes[standing]);
 	}
 }
 
@@ -211,7 +219,7 @@ TreeStats treeStats(const Tree& tree) {
 	};
 
 	if (tree.root.kind == CellKind::Branch) {
-		countNode(counting, tree.nodes[tree.root.payload]);
+		countBranch(counting, tree.root.payload);
 	}
 	for (const SurfaceLeaf& leaf : tree.surfaces) {
 		countRun(tree, leaf, stats);
@@ -238,7 +246,11 @@ CellEntry entryAt(const PackedNode& node, int slot) {
 void placeLeaf(const Tree& tree, const PlacedLeaf& leaf, std::vector<PlacedLeaf>& placed);
 
 void placeNode(const Tree& tree, const PlacedLeaf& branch, std::vector<PlacedLeaf>& placed) {
-	const PackedNode& node = tree.nodes[branch.entry.payload];
+	const std::uint32_t standing = standingNode(tree, branch.entry.payload);
+	if (standing == noNode) {
+		return;
+	}
+	const PackedNode& node = tree.nodes[standing];
 	for (int child = 0; child < 8; ++child) {
 		const PlacedLeaf coarse = childLeaf(branch, entryAt(node, child * 8), child);
 		if (((node.coarse >> child) & 1) != 0) {
@@ -272,13 +284,29 @@ std::vector<PlacedLeaf> placedLeaves(const Tree& tree) {
 	return placed;
 }
 
+const Program& slotProgram(const Scene& scene, const std::vector<ObjectSlot>& slots, std::uint32_t slot) {
+	return slots.empty() ? scene.objectPrograms[slot] : *slots.data()[slot].program;
+}
+
+std::uint32_t slotLeastLeaf(const std::vector<ObjectSlot>& slots, std::uint32_t slot) {
+	return slots.empty() ? 0 : slots.data()[slot].leaves;
+}
+
+std::uint32_t treeLeastLeaf(const Tree& tree, std::uint32_t slot) {
+	return tree.growth ? slotLeastLeaf(tree.growth->slots, slot) : 0;
+}
+
+const Program& treeProgram(const Scene& scene, const Tree& tree, std::uint32_t slot) {
+	return tree.growth ? slotProgram(scene, tree.growth->slots, slot) : scene.objectPrograms[slot];
+}
+
 KeptSteps referencedSteps(const Scene& scene, const Tree& tree, const ProgramReference& reference) {
 	if (reference.source == ProgramSource::Object) {
-		return wholeSteps(scene.objectPrograms[reference.index]);
+		return wholeSteps(treeProgram(scene, tree, reference.index));
 	}
 	const ProgramCut& cut = tree.cuts[reference.index];
 	return KeptSteps {
-		.program  = scene.objectPrograms[cut.object],
+		.program  = treeProgram(scene, tree, cut.object),
 		.entries  = tree.cutSteps.data() + cut.first,
 		.ranges   = cut.ranges,
 		.rerouted = cut.rerouted,
@@ -286,19 +314,8 @@ KeptSteps referencedSteps(const Scene& scene, const Tree& tree, const ProgramRef
 	};
 }
 
-std::uint32_t referencedObject(const Tree& tree, const ProgramReference& reference) {
+std::uint32_t referencedSlot(const Tree& tree, const ProgramReference& reference) {
 	return reference.source == ProgramSource::Cut ? tree.cuts[reference.index].object : reference.index;
-}
-
-std::vector<Step> keptStepsOf(const Scene& scene, const Tree& tree, std::uint32_t cut) {
-	const ProgramCut& held = tree.cuts[cut];
-	const Program& whole   = scene.objectPrograms[held.object];
-	std::vector<Step> steps;
-	const std::uint16_t* ranges = tree.cutSteps.data() + held.first;
-	for (std::uint32_t r = 0; r < held.ranges; ++r) {
-		steps.insert(steps.end(), whole.steps.begin() + ranges[2 * r], whole.steps.begin() + ranges[2 * r + 1]);
-	}
-	return steps;
 }
 
 }

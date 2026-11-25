@@ -1,6 +1,7 @@
 #include "plugins/execution/packets/packet.h"
 
 #include "plugins/execution/packets/leaf_lanes.h"
+#include "plugins/geometry/tree/lazy.h"
 #include "plugins/geometry/tree/span.h"
 
 #include <array>
@@ -49,6 +50,7 @@ struct PacketWalker {
 	unsigned outside;
 	int verdictsFrom;
 	bool bare;
+	bool sharp;
 	const LaneSlopes& slopes;
 };
 
@@ -356,7 +358,7 @@ void packetNode(const PacketWalker& walker, const PackedNode& node, const Packet
 		keptMet(met, lane, walkSlot(laneWalker(walker, lane), entry, laneSpan(cell.span, lane)));
 		return;
 	}
-	packetNode(walker, treeOf(walker.geometry).nodes[entry.payload], cell, met);
+	packetNode(walker, treeOf(walker.geometry).nodes[enteredNode(walker.geometry, entry.payload, walker.sharp)], cell, met);
 }
 
 [[gnu::always_inline]] inline void packetSlot(const PacketWalker& walker, const CellEntry& entry, const PacketCell& cell, PacketMet& met) {
@@ -528,6 +530,14 @@ unsigned outsideLanes(const Packet& packet) {
 	return lanes;
 }
 
+bool anySharp(const Packet& packet) {
+	bool sharp = false;
+	for (int lane = 0; lane < packetWidth; ++lane) {
+		sharp = sharp || (((packet.present >> lane) & 1) != 0 && packet.rays[std::size_t(lane)].sharp != 0);
+	}
+	return sharp;
+}
+
 PacketMet walkedPacket(const Geometry& geometry, const Packet& packet, const WaveTricks& tricks) {
 	const RootRays rays     = rootRays(packet);
 	const LaneSlopes slopes = laneSlopes(rays);
@@ -540,6 +550,7 @@ PacketMet walkedPacket(const Geometry& geometry, const Packet& packet, const Wav
 		.verdictsFrom = !tricks.missedLanes ? packetWidth + 1 : tricks.bareShadows && packet.kind == RayKind::Shadow ? bareVerdictsFrom
 																													 : verdictsFrom,
 		.bare         = tricks.bareShadows && packet.kind == RayKind::Shadow,
+		.sharp        = anySharp(packet),
 		.slopes       = slopes,
 	};
 

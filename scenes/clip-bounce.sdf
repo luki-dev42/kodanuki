@@ -4,7 +4,7 @@ render {
 	width     = 960;
 	height    = 600;
 	tolerance = 2;
-	far       = 30;
+	far       = 45;
 }
 
 clip {

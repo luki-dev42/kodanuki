@@ -66,7 +66,7 @@ Value argumentValue(Compiler& compiler, const Value& argument) {
 
 		const Step argument = {
 			.opcode = Opcode::Argument,
-			.a      = index,
+			.a      = std::uint16_t(index),
 			.b      = 0,
 			.c      = 0,
 			.value  = 0,
@@ -148,6 +148,9 @@ Program compileFunction(Evaluator& evaluator, const Pattern& pattern) {
 	const Value result = inlineFunction(evaluator, invocation);
 	if (result.kind != ValueKind::Number) {
 		fail(pattern.function->location, pattern.function->text + " must return a number");
+	}
+	if (compiler.program.steps.size() > mostProgramSteps) {
+		fail(pattern.location, pattern.function->text + " has more than 65535 steps");
 	}
 	compiler.program.result = slotOf(evaluator, result);
 	evaluator.compiler      = saved;

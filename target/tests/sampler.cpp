@@ -166,6 +166,7 @@ void checkPairing(const Pairing& pairing) {
 		worst                 = std::max(worst, std::abs(a.mean[c] - b.mean[c]) / std::max(combined, 1e-12));
 	}
 	std::printf("pairing %s: off %.5f %.5f %.5f (error %.1e), on %.5f %.5f %.5f (error %.1e), worst gap %.2f standard errors\n", pairing.what, a.mean[0], a.mean[1], a.mean[2], a.error[1], b.mean[0], b.mean[1], b.mean[2], b.error[1], worst);
+	check(a.mean[1] > 0 && b.mean[1] > 0, "a frame is not black");
 	check(worst < 4, "a Sampler or Strategy member leaves the mean unchanged");
 	check(a.first.rgb != b.first.rgb, "a Sampler or Strategy member changes the frame");
 	check(armFrame(scalar, 1).rgb == b.first.rgb, "waves draw a Sampler or Strategy member's frame of one path at a time to the bit");
@@ -912,6 +913,7 @@ void checkRulePairings() {
 	checkFeaturePairings("rules: a hidden pane", rulesText(rulesLamp(""), balls + "rule(camera = 0) paint(matte([0.8, 0.8, 0.8])) at([0, -0.9, 0.4]) box([1.2, 0.04, 0.8]);"));
 	checkFeaturePairings("rules: a shadowless ball", rulesText(rulesLamp(""), balls + "rule(shadows = 0) paint(matte([0.6, 0.6, 0.7])) at([0, -0.3, 0.9]) sphere(0.25);"));
 	checkFeaturePairings("rules: a shadowless ball over fog", rulesText(rulesLamp(""), balls + "paint(glass(refraction = 1, scatter = 0.5, roughness = 0)) at([0.1, 0.3, 1.2]) box([3, 3, 0.3]); rule(shadows = 0) paint(matte([0.6, 0.6, 0.7])) at([0.15, 0.5, 1.75]) sphere(0.3);"));
+	checkFeaturePairings("rules: a shadowless fog about the eye", rulesText("light sun { direction = [0.3, 0.4, 0.85]; angle = 0.3; power = [3, 3, 2.5]; }", balls + "rule(shadows = 0) paint(glass(refraction = 1, absorb = [0, 0, 0], scatter = 0.3, roughness = 0)) at([0, -1, 0.95]) box([8, 8, 2.1]);"));
 	checkFeaturePairings("rules: causticless glass and mirror", rulesText(rulesLamp(""), "with rule(caustics = 0) {" + balls + "}"));
 	checkFeaturePairings("rules: a lamp without caustics", rulesText(rulesLamp("caustics = 0;"), balls));
 	checkFeaturePairings("rules: a lamp reaching one group", rulesText(rulesLamp("reaches = [stage];"), "group(stage) " + balls));

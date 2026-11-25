@@ -4,8 +4,6 @@
 #include "plugins/build/face_slabs/face_slabs.h"
 #include "plugins/build/faced_hits/faced_hits.h"
 #include "plugins/build/shared_coefficients/shared_coefficients.h"
-#include "plugins/build/shared_subtrees/shared_subtrees.h"
-#include "plugins/build/split_beside_finer/split_beside_finer.h"
 #include "plugins/geometry/tree/cut.h"
 #include "plugins/geometry/tree/grow.h"
 #include "plugins/geometry/tree/tree.h"
@@ -22,17 +20,11 @@ namespace kodanuki {
  * A pass that rewrites a finished subtree: the extension point Build
  * pass.
  *
- * `--use passes=...` picks the members; they run in this order. Every
+ * `--use build=...` picks the members; they run in this order. Every
  * pass leaves each hit within the tolerance, and the compression
  * passes and the face slabs leave every hit the same to the bit.
  */
 enum class PassMember : std::uint8_t {
-	/**
-	 * Splits a leaf fitted to its whole field with a neighbour more than
-	 * one level finer where the fit strays at a 162-point grid
-	 * (plugins/build/split_beside_finer).
-	 */
-	SplitBesideFiner,
 	/**
 	 * Stores a leaf's object programs cut to its cell where the cut
 	 * keeps a share of the steps or fewer (plugins/build/cut_long_programs).
@@ -41,8 +33,7 @@ enum class PassMember : std::uint8_t {
 	/**
 	 * Keeps a slab after every face that is not a plane, which the leaf's
 	 * solve asks before it solves the face
-	 * (plugins/build/face_slabs). It is the last grown member,
-	 * so the cells the passes before it grow again keep slabs too.
+	 * (plugins/build/face_slabs).
 	 */
 	FaceSlabs,
 	/**
@@ -50,11 +41,6 @@ enum class PassMember : std::uint8_t {
 	 * (plugins/build/shared_coefficients).
 	 */
 	SharedCoefficients,
-	/**
-	 * A packed node equal to one the tree holds becomes a copy of it,
-	 * and its subtree is dropped (plugins/build/shared_subtrees).
-	 */
-	SharedSubtrees,
 };
 
 /**
@@ -66,8 +52,8 @@ enum class PassMoment : std::uint8_t {
 	 */
 	Grown,
 	/**
-	 * In the order subtrees were handed out, on the packed subtree once
-	 * its indices are the tree's, before it is written into the tree.
+	 * In the same worker, on the packed subtree, before it is placed
+	 * into the tree.
 	 */
 	Placed,
 };
@@ -75,18 +61,15 @@ enum class PassMoment : std::uint8_t {
 /**
  * The typed state of every pass that keeps state.
  *
- * It lives in the BuildContext and is touched only at the placed
- * moment, which runs one subtree at a time.
+ * Each node of a growing tree is passed with a state of its own
+ * (plugins/geometry/tree/lazy.h), so what a pass shares it shares
+ * within one node.
  */
 struct PassState {
 	/**
 	 * The index over the tree's face runs.
 	 */
 	SharedRuns coefficients;
-	/**
-	 * The index over the tree's packed nodes.
-	 */
-	SharedNodes subtrees;
 };
 
 /**
@@ -94,7 +77,7 @@ struct PassState {
  */
 struct PassQuery {
 	/**
-	 * What every cell reads, for passes that grow cells again.
+	 * What every cell reads.
 	 */
 	const GrowContext& context;
 	/**
@@ -107,8 +90,9 @@ struct PassQuery {
 	 */
 	const CellPrograms& programs;
 	/**
-	 * The tree so far, read at the placed moment; the grown moment is
-	 * asked with an empty tree.
+	 * The tree the subtree's indices count on from: an empty tree for a
+	 * node of a growing tree, whose indices are its own until it is
+	 * placed.
 	 */
 	const Tree& tree;
 };
@@ -123,8 +107,7 @@ PassMoment passMoment(PassMember member);
 /**
  * Run one pass over a subtree: the point's one dispatch.
  *
- * A grown pass does not touch the state, since workers run it at once;
- * each worker asks it with an empty state of its own.
+ * A grown pass does not touch the state.
  *
  * A mutable reference, as rule 46 allows for build-time accumulators.
  *
@@ -165,10 +148,6 @@ SlabLeg passLeg(const RunHeader& header, const float* base, const float* rate);
 int passFaceSide(const SlabLeg& leg, const std::uint32_t* slab);
 
 /**
- * Return the members that are on unless `--use passes=` says
- * otherwise: all five.
- */
-/**
  * The owner of a face no one program of its leaf's list gives alone.
  */
 constexpr std::uint32_t noFaceOwner = 0xFu;
@@ -189,9 +168,15 @@ struct LandedFace {
 	 */
 	std::array<float, 3> gradient;
 	/**
-	 * The scene leaf a hit on an exact face paints.
+	 * The scene leaf a hit on an exact face paints, as how far it stands
+	 * from the least leaf of the painter's object (slotLeastLeaf()).
 	 */
 	std::uint32_t leaf;
+	/**
+	 * The program of the leaf's list whose object the leaf is of, as its
+	 * index in the list.
+	 */
+	std::uint32_t painter;
 	/**
 	 * The program of the leaf's list a hit on the face evaluates alone,
 	 * as its index in the list, or noFaceOwner.
@@ -235,15 +220,18 @@ LandedFace passLandedFace(const std::uint32_t* run, int face, const float* unit)
  */
 bool passReadsCellPast();
 
+/**
+ * Return the members that are on unless `--use build=` says otherwise:
+ * all three.
+ */
 std::vector<PassMember> defaultPassMembers();
 
 /**
- * Return the member a `--use passes=` name names, or nothing for an
+ * Return the member a `--use build=` name names, or nothing for an
  * unknown name.
  *
- * @param name The member's name: split_beside_finer,
- *        cut_long_programs, face_slabs, shared_coefficients or
- *        shared_subtrees.
+ * @param name The member's name: cut_long_programs, face_slabs or
+ *        shared_coefficients.
  */
 std::optional<PassMember> passMemberNamed(const std::string& name);
 

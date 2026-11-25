@@ -39,8 +39,8 @@ std::vector<UseKey> pluginKeys() {
 		useKey("execution", UseForm::One, { "single", "packets" }, "how rays are traced, one by one or in packets (with geometry=tree); the frame is the same within noise"),
 		useKey("backend", UseForm::One, { "cpu" }, "what the workers run the steps on: the CPU's threads"),
 		useKey("stopping", UseForm::One, { "fixed_count", "confidence_interval" }, "when a pixel is done: after --samples, or once its noise is within --tolerance"),
-		useKey("detail", UseForm::Joined, { "focus_on_view", "pilot", "split_hidden_primitives", "split_crowded_leaves" }, "what says how fine the tree's cells must be, besides their distance"),
-		useKey("build", UseForm::Joined, { "split_beside_finer", "cut_long_programs", "face_slabs", "shared_coefficients", "shared_subtrees" }, "the build passes that rewrite the tree"),
+		useKey("detail", UseForm::Joined, { "focus_on_view", "split_hidden_primitives", "split_crowded_leaves" }, "what says how fine the tree's cells must be, besides their distance"),
+		useKey("build", UseForm::Joined, { "cut_long_programs", "face_slabs", "shared_coefficients" }, "the build passes that rewrite the tree"),
 		useKey("strategy", UseForm::Joined, { "join" }, "how paths are made besides meeting light and aiming at it"),
 		useKey("sampler", UseForm::Joined, { "sobol", "highlight_guide", "each_lamp_first", "sky_map", "glowing_surfaces", "toward_mirrors" }, "how numbers, directions and lights are drawn; without any, independent numbers, material directions, one light by contribution, aimed at lamps"),
 	};
@@ -132,6 +132,7 @@ Choices defaultChoices() {
 		.region      = none,
 		.least       = 0,
 		.depth       = -1,
+		.memory      = 0,
 		.threads     = 8,
 	};
 }
@@ -354,6 +355,10 @@ bool readChoice(Choices& choices, const CommandLine& arguments, int& i) {
 	}
 	if (flag == "--depth" && i + 1 < argc) {
 		choices.depth = std::stoi(argv[++i]);
+		return true;
+	}
+	if (flag == "--memory" && i + 1 < argc) {
+		choices.memory = std::max(0.0, std::stod(argv[++i]));
 		return true;
 	}
 	if (flag == "--threads" && i + 1 < argc) {

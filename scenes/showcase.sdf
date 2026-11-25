@@ -4,7 +4,7 @@ render {
 	width     = 1280;
 	height    = 720;
 	tolerance = 2;
-	far       = 14;
+	far       = 28;
 }
 
 camera {

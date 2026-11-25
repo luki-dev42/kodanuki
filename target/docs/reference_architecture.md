@@ -136,9 +136,9 @@ pointer, once per batch, frame or run.
 | Backend | `openWorkers`, `hostWorkers`, `ranStep`, ... | one | `backend/cpu` | runs the workers' steps; the frame stays within noise |
 
 A preparation is not a plugin of its own: it is the `prepareFrame` hook
-of the plugin it serves (`sampler/sky_map`, `sampler/glowing_surfaces`,
-`sampler/toward_mirrors`, `sampler/highlight_guide`, `strategy/join`'s
-light pass). Its `Plugin.reads` names what it reads, and it runs again
+of the plugin it serves (`geometry/tree`'s frame work,
+`sampler/sky_map`, `sampler/glowing_surfaces`, `sampler/toward_mirrors`,
+`sampler/highlight_guide`, `strategy/join`'s light pass). Its `Plugin.reads` names what it reads, and it runs again
 on every Cut and on each change of what it reads: `Camera` on Moved,
 `Lights`, `Looks` and `Shapes` on the change of that name (a
 preparation that reads glowing surfaces reads `Looks`); `Plugin.after`
@@ -153,8 +153,8 @@ own, a plugin with `Point::Owned`.
 
 | owner | point | members |
 |---|---|---|
-| `geometry/tree` | Detail | `detail/focus_on_view`, `pilot`, `split_hidden_primitives`, `split_crowded_leaves`; by distance always |
-| `geometry/tree` | Build | `build/split_beside_finer`, `cut_long_programs`, `face_slabs`, `shared_coefficients`, `shared_subtrees`, `faced_hits` |
+| `geometry/tree` | Detail | `detail/focus_on_view`, `split_hidden_primitives`, `split_crowded_leaves`; by distance always |
+| `geometry/tree` | Build | `build/cut_long_programs`, `face_slabs`, `shared_coefficients`, `faced_hits` |
 | `transport/paths` | Strategy | `strategy/join`; meet and aim always |
 | `transport/paths` | Sampler | `sampler/sobol`, `highlight_guide`, `each_lamp_first`, `sky_map`, `glowing_surfaces`, `toward_mirrors` |
 | `transport/paths` | Feature | `feature/absorption`, `atmosphere`, `clouds`, `coats`, `dispersion`, `path_rules`, `scattering`, `sky_layers` |
@@ -205,9 +205,12 @@ function returns the struct, and any files of its own.
   kernel for a step returns false and the fallback backend
   (`fallbackBackend()`, `backend/cpu`) runs it. The fallback also hosts
   every chosen backend's workers on its threads (`hostWorkers`).
-- Pass workers belong to the backends. A plugin's own work outside the
-  passes may keep its own threads: the tree build, the pilot, the
-  temporal reconstruction and the upscaler.
+- Pass workers belong to the backends. `geometry/tree` builds a node
+  and runs a tile on the worker whose ray first needs them (a node near
+  the root on the workers waiting for it too). A plugin's own work
+  outside the passes may keep its own threads: the tree's object boxes
+  and the tiles it runs again between frames, the temporal
+  reconstruction and the upscaler.
 
 ## Frames: still, clip, viewer
 
@@ -220,10 +223,14 @@ function returns the struct, and any files of its own.
   and groups Looks, the shapes' programs, places and count Shapes; a
   cut of the clip or its wrap in the viewer is a Cut. A file that never
   read `time` is evaluated once.
-- `buildWorld` builds the world again on Shapes and on Cut, from the
-  scene's own camera at the frame's time, never the flown one, so a
-  move of the camera alone builds nothing. The preparations redo what
-  their flags name. Only a Cut drops the history; on Lights, Looks or
+- `buildWorld` runs on Shapes and on Cut. `geometry/tree` keeps its
+  tree across frames and builds a cell when a ray first enters it
+  (reference_geometry.md, The kept tree): it drops only the cells an
+  object whose key changed reaches, so a scene loaded again unchanged
+  drops nothing. Its `prepareFrame` follows the frame's camera, the
+  flown one included: it grows the region, refines and forgets cells.
+  A move of the camera alone builds nothing until rays enter new cells.
+  The preparations redo what their flags name. Only a Cut drops the history; on Lights, Looks or
   Shapes the Reconstruction plugins keep it where the surface they saw
   stays, with the short cap and the tight clamp of a moving camera
   (`ShownFrame.moved`), and where the count of shapes differs they
@@ -262,10 +269,15 @@ function returns the struct, and any files of its own.
   (camera, render, grade). Every function takes the smallest of them it
   needs; there is no god struct.
 - **The world:** what the Geometry plugin built (`World`, `Geometry`).
-  `geometry/tree` keeps its `BuildContext` (demand, rough tree, scratch)
-  apart from the `Tree` result, and packs subtrees as they finish.
+  `geometry/tree` keeps one `Tree` for the run: the packed arrays rays
+  read, and its `Growth` (node records, object slots and boxes, free
+  stores, held tiles), from which a ray's walk builds the nodes it
+  enters. Walks take the world as `const Geometry&`; `growingTree()` is
+  the one place that casts it to the tree they build (rule 58).
 - **Rays and hits:** `Ray` and `Hit` (core/batch.h) hold floats in a
   fixed layout; a kernel computes in double and rounds what it found.
+  A ray carries `sharp`: whether its path left the camera through sharp
+  bounces only, which the tree builds finer for.
 - **Walks:** `transport/paths` owns `Walk`: the `Path` (throughput,
   wavelengths, hero, vertex), the member plugins' state beside it
   (`Companions`, as `GuideState` and `RuleState`), its lines to light

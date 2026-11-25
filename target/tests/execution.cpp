@@ -67,6 +67,7 @@ Ray rayFrom(const math::Vector& origin, const math::Vector& direction, double fa
 		.direction = math::normalized(direction),
 		.far       = float(far),
 		.inside    = false,
+		.sharp     = 1,
 		.within    = noMaterial,
 	};
 }

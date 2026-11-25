@@ -11,6 +11,8 @@
 
 namespace kodanuki {
 
+static_assert(sizeof(Step) == 24, "a step is three words");
+
 int operandCount(Opcode opcode) {
 	switch (opcode) {
 		case Opcode::Constant:
@@ -38,9 +40,9 @@ int operandCount(Opcode opcode) {
 Step renumberStep(const Step& step, const std::vector<std::uint32_t>& map) {
 	const int count = operandCount(step.opcode);
 	Step renumbered = step;
-	renumbered.a    = count > 0 ? map[step.a] : step.a;
-	renumbered.b    = count > 1 ? map[step.b] : 0;
-	renumbered.c    = count > 2 ? map[step.c] : 0;
+	renumbered.a    = count > 0 ? std::uint16_t(map[step.a]) : step.a;
+	renumbered.b    = count > 1 ? std::uint16_t(map[step.b]) : 0;
+	renumbered.c    = count > 2 ? std::uint16_t(map[step.c]) : 0;
 	return renumbered;
 }
 
@@ -346,9 +348,9 @@ Program aliasedStep(Program program, std::uint32_t step, std::uint32_t target) {
 	for (std::size_t i = step + 1; i < program.steps.size(); ++i) {
 		Step& moved     = program.steps[i];
 		const int count = operandCount(moved.opcode);
-		moved.a         = count > 0 ? aliasedOperand(moved.a, step, target) : moved.a;
-		moved.b         = count > 1 ? aliasedOperand(moved.b, step, target) : 0;
-		moved.c         = count > 2 ? aliasedOperand(moved.c, step, target) : 0;
+		moved.a         = count > 0 ? std::uint16_t(aliasedOperand(moved.a, step, target)) : moved.a;
+		moved.b         = count > 1 ? std::uint16_t(aliasedOperand(moved.b, step, target)) : 0;
+		moved.c         = count > 2 ? std::uint16_t(aliasedOperand(moved.c, step, target)) : 0;
 	}
 	program.result = aliasedOperand(program.result, step, target);
 	return program;
@@ -389,9 +391,9 @@ Program compactedProgram(Program program, std::vector<std::uint32_t>& map) {
 			marks[i]        = kept;
 			Step moved      = steps[i];
 			const int reads = operandCount(moved.opcode);
-			moved.a         = reads > 0 ? marks[moved.a] : moved.a;
-			moved.b         = reads > 1 ? marks[moved.b] : 0;
-			moved.c         = reads > 2 ? marks[moved.c] : 0;
+			moved.a         = reads > 0 ? std::uint16_t(marks[moved.a]) : moved.a;
+			moved.b         = reads > 1 ? std::uint16_t(marks[moved.b]) : 0;
+			moved.c         = reads > 2 ? std::uint16_t(marks[moved.c]) : 0;
 			steps[kept]     = moved;
 			kept += 1;
 		}

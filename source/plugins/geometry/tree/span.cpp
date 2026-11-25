@@ -135,7 +135,7 @@ bool readsCellPast(const LeafPlace& place, const HitQuery& query) {
 bool intoOtherMaterial(const LeafPlace& place, float at) {
 	const HitQuery query = passingQuery(place, at);
 	const Sourced past   = readsCellPast(place, query) ? passedWithin(query, place.surface) : passedInto(query, place.surface);
-	return past.leaf != noLeaf && place.walker.geometry.scene.leaves[past.leaf].material != place.walker.ray.within;
+	return past.leaf != noLeaf && sceneLeaf(place.walker.geometry.scene, past.leaf).material != place.walker.ray.within;
 }
 
 Met passingMet(const LeafPlace& place, float at) {
@@ -257,6 +257,11 @@ HitQuery hitQueryOf(const Walker& walker, const Met& met) {
 	};
 }
 
+std::uint32_t paintedLeaf(const Tree& tree, std::uint32_t surface, const LandedFace& landed) {
+	const ProgramReference& painter = tree.references[tree.lists[tree.surfaces[surface].programs].first + landed.painter];
+	return treeLeastLeaf(tree, referencedSlot(tree, painter)) + landed.leaf;
+}
+
 Hit facedHit(const Walker& walker, const HitQuery& query, const Met& met, const LandedFace& landed) {
 	const std::array<float, 3>& g = landed.gradient;
 	const double along            = double(g[0]) * walker.ray.direction.x + double(g[1]) * walker.ray.direction.y + double(g[2]) * walker.ray.direction.z;
@@ -265,7 +270,7 @@ Hit facedHit(const Walker& walker, const HitQuery& query, const Met& met, const 
 	const Sourced field = {
 		.value    = 0,
 		.gradient = { sign * g[0], sign * g[1], sign * g[2] },
-		.leaf     = landed.leaf,
+		.leaf     = paintedLeaf(treeOf(walker.geometry), met.payload, landed),
 		.other    = noLeaf,
 		.share    = 0,
 	};

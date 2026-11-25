@@ -132,23 +132,32 @@ struct GlowSeen {
 GlowCells noGlowCells();
 
 /**
- * Keep every grid cell a surface leaf lies in or covers whose programs
- * reach a glowing scene leaf, by its material or a coat, and whose field
- * at the middle comes within the cell's ball. A cell is guessed as bright
- * as the brightest glow the field there is made of.
+ * Keep every grid cell that holds a box the surface of an object with a
+ * glowing scene leaf, by its material or a coat, may pass through
+ * (fieldBoxes() at two halvings more than the grid's,
+ * plugins/geometry/tree/reach.h), where the object's field at the
+ * cell's middle comes within the cell's ball and is made of a glowing
+ * leaf. A cell is guessed as bright as the brightest glow the field
+ * there is made of. The objects' fields are read, not the tree's
+ * leaves, so the cells do not depend on which of the tree's cells rays
+ * have entered; a part of the surface that lies inside another object
+ * keeps its cells.
  *
- * @param geometry The tree and the scene.
+ * @param geometry The tree, for its region, and the scene.
  * @param looks The scene's looks: its materials and coats.
- * @param depth The halvings, 6.
+ * @param levels The halvings of the tree's first region, 6; the grid
+ *        halves a grown region that many more (grownLevels()), so its
+ *        cells keep their size, up to 21 halvings in all, so that a
+ *        cell's place along the three axes fits 64 bits; past that the
+ *        cells grow.
  */
-GlowCells gatheredGlowGrid(const Geometry& geometry, const Looks& looks, int depth);
+GlowCells gatheredGlowGrid(const Geometry& geometry, const Looks& looks, int levels);
 
 /**
  * Return the cells with a glow ball around each glowing object: the
- * tree's region halved ten times, or until a level would keep more than
- * 100000 boxes, keeping each box whose middle the object's field puts
- * within half the box's diagonal; the ball is round the middle of the
- * kept boxes' bounds and reaches their farthest corner.
+ * boxes its surface may pass through with the tree's region halved ten
+ * times (fieldBoxes()); the ball is round the middle of the boxes'
+ * bounds and reaches their farthest corner.
  *
  * @param geometry The geometry: the tree and the scene's objects.
  * @param looks The scene's looks: its materials and coats.

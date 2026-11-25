@@ -111,6 +111,9 @@ double fitStrayAt(const HiddenQuery& query, const Point& p) {
 }
 
 std::shared_ptr<const Program> askedLeaf(LeafPrograms& leaves, std::uint32_t leaf) {
+	if (leaf >= leaves.programs.size()) {
+		return std::make_shared<const Program>(leafProgram(leaves.scene, leaf));
+	}
 	std::atomic<std::shared_ptr<const Program>>& slot = leaves.programs[leaf];
 	std::shared_ptr<const Program> known              = slot.load();
 	if (known != nullptr) {
@@ -118,6 +121,18 @@ std::shared_ptr<const Program> askedLeaf(LeafPrograms& leaves, std::uint32_t lea
 	}
 	const std::shared_ptr<const Program> made = std::make_shared<const Program>(leafProgram(leaves.scene, leaf));
 	return slot.compare_exchange_strong(known, made) ? made : known;
+}
+
+Point leafPlace(const HiddenPrimitives& hidden, std::uint32_t leaf) {
+	if (leaf < hidden.places.size()) {
+		return hidden.places[leaf];
+	}
+	const double* origin = sceneLeaf(hidden.leaves->scene, leaf).placement.origin;
+	return { origin[0], origin[1], origin[2] };
+}
+
+bool placedLeaf(const HiddenPrimitives& hidden, std::uint32_t leaf) {
+	return leaf < hidden.places.size() || leaf >= tileLeafBase;
 }
 
 double leafStray(const HiddenPrimitives& hidden, const HiddenQuery& query, std::uint32_t leaf) {
@@ -130,11 +145,11 @@ double leafStray(const HiddenPrimitives& hidden, const HiddenQuery& query, std::
 	if (!bothSigns(program, query.box)) {
 		return std::numeric_limits<double>::infinity();
 	}
-	return fitStrayAt(query, standingPoint(query.box, hidden.places[leaf]));
+	return fitStrayAt(query, standingPoint(query.box, leafPlace(hidden, leaf)));
 }
 
 bool hidesLeaf(const HiddenPrimitives& hidden, const HiddenQuery& query) {
-	if (!fittedWhole(query.plan) || hidden.places.empty()) {
+	if (!fittedWhole(query.plan) || !hidden.leaves) {
 		return false;
 	}
 	const std::vector<std::uint32_t> leaves = cellLeaves(query.plan.programs);
@@ -142,7 +157,7 @@ bool hidesLeaf(const HiddenPrimitives& hidden, const HiddenQuery& query) {
 		return false;
 	}
 	for (const std::uint32_t leaf : leaves) {
-		if (leaf < hidden.places.size() && leafStray(hidden, query, leaf) > query.tolerance) {
+		if (placedLeaf(hidden, leaf) && leafStray(hidden, query, leaf) > query.tolerance) {
 			return true;
 		}
 	}

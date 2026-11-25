@@ -26,7 +26,8 @@ struct LeafPrograms {
 	/**
 	 * Each leaf's program, matching Scene::leaves; null until it is first
 	 * asked for. Workers that ask at once may each compile it, and the
-	 * first to finish keeps its program, the same as the others'.
+	 * first to finish keeps its program, the same as the others'. A
+	 * tile's leaf (sceneLeaf()) is compiled each time it is asked about.
 	 */
 	std::vector<std::atomic<std::shared_ptr<const Program>>> programs;
 };
@@ -94,7 +95,7 @@ HiddenPrimitives noHiddenPrimitives();
  * sides where the fit strays further than the tolerance at the point
  * of the cell nearest where the leaf stands, a sixteenth of the cell in
  * from it toward the middle, so that it is no point the fit is exact
- * at.
+ * at. The leaves of tiles are asked about alike.
  *
  * @param hidden Every leaf of the scene alone.
  * @param query The cell, its plan and its tolerance.

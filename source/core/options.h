@@ -95,6 +95,11 @@ struct Choices {
 	 */
 	int depth;
 	/**
+	 * How many megabytes the tree may hold before it forgets the cells
+	 * no ray entered lately, 0 for a quarter of the machine's memory.
+	 */
+	double memory;
+	/**
 	 * How many threads: the workers `backend/cpu` opens, and the
 	 * threads of the plugins' own work.
 	 */
@@ -200,7 +205,7 @@ bool readSetting(Shot& shot, char** argv, int& i);
 
 /**
  * Read a command-line choice of members and settings: --use, --region,
- * --least, --depth or --threads.
+ * --least, --depth, --memory or --threads.
  *
  * Where the flag at i is one and its values are there, they are read
  * into the choices and i moves to the last of them, and true comes

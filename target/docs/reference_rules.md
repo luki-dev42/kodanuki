@@ -229,10 +229,13 @@ a dropped rule is deleted.
     each call `target/workflow.py <target> $(SCENE) $(CONFIG)`, which
     builds only the programs the target runs. A config
     is a TOML file in `target/configs/` with three blocks. `[settings]`
-    takes `width` and `height` (`--size`), `tolerance`,
+    takes `width` and `height` (`--size`), `tolerance`, `margin`,
     `samples`, `batch`, `split`, `surfaces`, `collisions`, `seed` and `threads`
-    (their flags; one left out keeps the scene's value), `faces` (`true`
-    or `false`) and `smooth_glass` (`"exact"` or `"lobe"`). `[viewer]`
+    (their flags; one left out keeps the scene's value), `memory`
+    (`--memory`, the megabytes the tree holds before it forgets cells,
+    0 for a quarter of the machine's memory), `faces` (`true`
+    or `false`), `smooth_glass` (`"exact"` or `"lobe"`) and
+    `glow_balls` (`true` for `--use glow_balls=on`). `[viewer]`
     takes what only the viewer reads: `internal_width` and
     `internal_height` (`--internal`). `[plugins]` names every plugin
     as `"point/name"`, `true` or `false`, at the default the source
@@ -284,3 +287,9 @@ a dropped rule is deleted.
     `Renderer`, `Plugin`, `Worker`, walks or scenes; it is a small
     standard library of our own. Something moves into `shared` only
     when at least two places use it, never because it might be useful.
+58. The renderer's code holds no `const_cast` but one:
+    `growingTree()` (plugins/geometry/tree/lazy.h) casts a walk's
+    `const Geometry&` to the tree its rays build. A node's state and
+    stamp bytes, which walks read and write at once, go through
+    `std::atomic_ref`; every other field of a node is written before its
+    state says it is built.

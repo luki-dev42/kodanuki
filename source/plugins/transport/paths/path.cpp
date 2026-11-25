@@ -45,6 +45,10 @@ bool sharedDraw(const Coordinate& coordinate) {
 	return coordinate.event == 0 && aims;
 }
 
+std::uint8_t sharpSoFar(const Path& path) {
+	return path.widest < sharpBounce ? 1 : 0;
+}
+
 Ray leavingRay(const Vertex& vertex, const math::Vector& direction, std::uint32_t medium) {
 	const double side = math::dot(direction, vertex.surface) > 0 ? vertex.lift : -vertex.lift;
 	return Ray {
@@ -52,6 +56,7 @@ Ray leavingRay(const Vertex& vertex, const math::Vector& direction, std::uint32_
 		.direction = direction,
 		.far       = std::numeric_limits<float>::infinity(),
 		.inside    = medium != noMaterial,
+		.sharp     = 0,
 		.within    = medium,
 	};
 }
@@ -106,6 +111,7 @@ Path freshPath(const PathNumbers& numbers, const Wavelengths& wavelengths) {
 		.legFrom     = { 0, 0, 0 },
 		.crossings   = 0,
 		.sharpness   = 0,
+		.widest      = 0,
 		.density     = 0,
 		.depth       = 0,
 		.collisions  = 0,

@@ -239,7 +239,7 @@ double rootSlope(const Program& program, std::uint32_t root, const double* p) {
 
 std::optional<Squared> squaredOf(const Program& program, const Box& box) {
 	const std::optional<std::uint32_t> root = affineRoot(program, program.result);
-	if (!root) {
+	if (!root || program.steps.size() + 2 > mostProgramSteps) {
 		return std::nullopt;
 	}
 	const double p[3]       = { boxCentre(box, 0), boxCentre(box, 1), boxCentre(box, 2) };
@@ -248,11 +248,11 @@ std::optional<Squared> squaredOf(const Program& program, const Box& box) {
 	const Program rest      = replacedStep(program, *root, constantStepOf(program.steps[*root], 0));
 	const Program withSlope = withStep(rest, constantStepOf(program.steps[program.result], slope));
 	Program reach           = extended(withSlope, Opcode::Divide, withSlope.result);
-	reach.steps.back().a    = rest.result;
+	reach.steps.back().a    = std::uint16_t(rest.result);
 	const Program squared   = extended(reach, Opcode::Multiply, reach.result);
 	Program shifted         = extended(squared, Opcode::Subtract, sum);
-	shifted.steps.back().a  = slope > 0 ? sum : squared.result;
-	shifted.steps.back().b  = slope > 0 ? squared.result : sum;
+	shifted.steps.back().a  = std::uint16_t(slope > 0 ? sum : squared.result);
+	shifted.steps.back().b  = std::uint16_t(slope > 0 ? squared.result : sum);
 	const double nearest    = -intervalsOver(shifted, box)[reach.result].upper;
 	if (!(slope != 0 && nearest > 0)) {
 		return std::nullopt;
@@ -788,7 +788,7 @@ Program floorCondition(const Split& split) {
 	const Step& step       = split.program.steps[split.step];
 	const Program withJump = withStep(split.program, constantStepOf(step, split.intervals[split.step].upper));
 	Step difference        = differenceStep(step);
-	difference.b           = withJump.result;
+	difference.b           = std::uint16_t(withJump.result);
 	return withStep(withJump, difference);
 }
 

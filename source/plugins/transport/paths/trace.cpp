@@ -566,6 +566,7 @@ Ray crossingRay(const Vertex& vertex, const math::Vector& heading, std::uint32_t
 		.direction = heading,
 		.far       = std::numeric_limits<float>::infinity(),
 		.inside    = medium != noMaterial,
+		.sharp     = 0,
 		.within    = medium,
 	};
 }
@@ -1095,6 +1096,8 @@ void scatteredFrom(const Tracing& tracing, Walk& walk) {
 	path.legFrom               = path.vertex.point;
 	path.crossings             = 0;
 	path.sharpness             = drawn.sharpness;
+	path.widest                = std::max(path.widest, path.sharpness);
+	walk.ray.sharp             = sharpSoFar(path);
 	path.density               = keptDensity(drawn.density > 0 ? drawn.density : 0);
 	walk.companions.rules      = drawnRules(walk.companions.rules);
 }
@@ -1105,6 +1108,7 @@ Ray lineRay(const Shadow& shadow) {
 		.direction = shadow.direction,
 		.far       = shadow.reach,
 		.inside    = shadow.within != noMaterial,
+		.sharp     = 0,
 		.within    = shadow.within,
 	};
 }
@@ -1256,7 +1260,8 @@ Shadow shadowPast(const Shadow& shadow, const Hit& hit, double lift) {
 Shadow passedShadow(const Tracing& tracing, const Shadow& shadow, const Hit& hit) {
 	const bool entering = shadow.within == noMaterial;
 	Shadow passed       = shadowPast(shadow, hit, tracing.limits.bias + 2 * hit.loosened);
-	passed.within       = entering ? tracing.scene.leaves[hit.leaf].material : noMaterial;
+	passed.within       = entering ? sceneLeaf(tracing.scene, hit.leaf).material : noMaterial;
+	passed.medium       = entering ? shadow.medium : noMaterial;
 	return passed;
 }
 
@@ -1268,7 +1273,7 @@ LineStep lineCrossing(const Tracing& tracing, const LineHit& met, const Spectrum
 	};
 
 	const Hit& hit = met.hit;
-	if (hit.leaf == noLeaf || !crossableBody(tracing, tracing.scene.leaves[hit.leaf].material)) {
+	if (hit.leaf == noLeaf || !crossableBody(tracing, sceneLeaf(tracing.scene, hit.leaf).material)) {
 		return blocked;
 	}
 
@@ -1353,7 +1358,8 @@ Ray passedRay(const Tracing& tracing, const Path& path, const Hit& hit, bool ent
 		.direction = path.heading,
 		.far       = std::numeric_limits<float>::infinity(),
 		.inside    = entering,
-		.within    = entering ? tracing.scene.leaves[hit.leaf].material : noMaterial,
+		.sharp     = sharpSoFar(path),
+		.within    = entering ? sceneLeaf(tracing.scene, hit.leaf).material : noMaterial,
 	};
 }
 
@@ -1422,13 +1428,16 @@ void lookedOn(const Tracing& tracing, Walk& walk, const Answer& answer) {
 
 Ray lookedFrom(const Path& path) {
 	if (path.crossings == 0) {
-		return leavingRay(path.vertex, path.heading, noMaterial);
+		Ray leaving   = leavingRay(path.vertex, path.heading, noMaterial);
+		leaving.sharp = sharpSoFar(path);
+		return leaving;
 	}
 	return Ray {
 		.origin    = path.legFrom,
 		.direction = path.heading,
 		.far       = std::numeric_limits<float>::infinity(),
 		.inside    = false,
+		.sharp     = sharpSoFar(path),
 		.within    = noMaterial,
 	};
 }
@@ -1454,6 +1463,7 @@ void crossedOn(const Tracing& tracing, Walk& walk, const Arrival& arrival, const
 	const std::uint32_t medium = vertex.bsdf.sides.inside ? noMaterial : vertex.bsdf.material;
 	path.throughput            = path.throughput * keptAlong(tracing, path, math::length(arrival.hit.point - path.legFrom));
 	walk.ray                   = crossingRay(vertex, path.heading, medium);
+	walk.ray.sharp             = sharpSoFar(path);
 	path.medium                = medium;
 	path.legFrom               = walk.ray.origin;
 	path.crossings             = path.crossings + 1;

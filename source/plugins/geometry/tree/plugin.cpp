@@ -3,10 +3,12 @@
 #include "core/block.h"
 #include "core/render.h"
 #include "core/step.h"
+#include "plugins/geometry/tree/build.h"
+#include "plugins/geometry/tree/lazy.h"
 #include "plugins/geometry/tree/walk.h"
 #include "plugins/geometry/tree/world.h"
-#include "plugins/transport/paths/paths.h"
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <type_traits>
@@ -34,24 +36,67 @@ TreeWorld& openedTreeWorld(Renderer& renderer) {
 	return *treeWorld(renderer);
 }
 
-Geometry treeBuilt(Renderer& renderer) {
-	TreeWorld& world = openedTreeWorld(renderer);
+bool forgivingTiles(const Renderer& renderer) {
+	return std::any_of(renderer.sinks.begin(), renderer.sinks.end(), [](const Plugin& sink) {
+		return sink.hooks.hostRenderer != nullptr;
+	});
+}
+
+void remadeWorld(TreeWorld& world, const SceneFile& file, const Choices& choices, bool forgiving) {
+	const std::uint64_t opened    = world->tree.growth->opened;
+	const std::uint64_t reset     = world->tree.growth->reset;
+	const std::uint64_t forgotten = world->tree.growth->forgotten;
+	const std::uint64_t rooted    = world->tree.growth->rooted;
+	Choices again                 = choices;
+	again.least                   = world->tree.growth->detail.least;
 	world.reset();
-	world.emplace(builtGeometry(renderer.file, renderer.options.choices, pathsWorld(stateOf(renderer, "transport/paths"))));
+	world.emplace(builtGeometry(file, again, forgiving));
+	world->tree.growth->opened    = opened;
+	world->tree.growth->reset     = reset;
+	world->tree.growth->forgotten = forgotten;
+	world->tree.growth->rooted    = rooted;
+}
+
+Geometry treeBuilt(Renderer& renderer) {
+	TreeWorld& world       = openedTreeWorld(renderer);
+	const Choices& choices = renderer.options.choices;
+	if (!world) {
+		world.emplace(builtGeometry(renderer.file, choices, forgivingTiles(renderer)));
+		return treeGeometry(renderer.file.scene, world->tree);
+	}
+	if (!keptGeometry(*world, renderer.file)) {
+		remadeWorld(world, renderer.file, choices, forgivingTiles(renderer));
+	}
 	return treeGeometry(renderer.file.scene, world->tree);
 }
 
-double treeBytes(const Tree& tree) {
-	const double nodes   = double(tree.nodes.size() * sizeof(PackedNode) + tree.surfaces.size() * sizeof(SurfaceLeaf) + tree.solids.size() * sizeof(SolidLeaf));
-	const double lists   = double(tree.runs.size() * sizeof(std::uint32_t) + tree.lists.size() * sizeof(ProgramList) + tree.references.size() * sizeof(ProgramReference));
-	const double cutting = double(tree.cuts.size() * sizeof(ProgramCut) + tree.cutSteps.size() * sizeof(std::uint16_t));
-	return nodes + lists + cutting;
+void treePrepared(Renderer& renderer) {
+	TreeWorld& world = openedTreeWorld(renderer);
+	if (!world) {
+		return;
+	}
+	Shot shot   = renderer.file.shot;
+	shot.camera = renderer.frame.camera;
+	if (!renderer.options.choices.framed && renderer.world) {
+		growRegion(world->tree, reachedHull(heldBoxes(world->tree.growth->boxes.boxes, renderer.file.scene), shot));
+		renderer.world->geometry.region = world->tree.region;
+	}
+	moveReach(world->tree, shotReach(shot));
+	prepareTree(world->tree, shot, changedBy(renderer.step.change, joinedChange(Change::Cut, Change::Moved)));
 }
 
 std::vector<Counter> treePublished(const Renderer& renderer) {
 	const TreeWorld* world = treeWorld(renderer);
+	const Tree* tree       = world && *world ? &(*world)->tree : nullptr;
 	return {
-		Counter { .name = "bytes.tree", .value = world && *world ? treeBytes((*world)->tree) : 0 },
+		Counter { .name = "bytes.tree", .value = tree ? double(heldBytes(*tree)) : 0 },
+		Counter { .name = "nodes.opened", .value = tree ? double(tree->growth->opened) : 0 },
+		Counter { .name = "nodes.reset", .value = tree ? double(tree->growth->reset) : 0 },
+		Counter { .name = "nodes.forgotten", .value = tree ? double(tree->growth->forgotten) : 0 },
+		Counter { .name = "tree.rooted", .value = tree ? double(tree->growth->rooted) : 0 },
+		Counter { .name = "tiles.evaluated", .value = tree ? double(tree->growth->tiles.evaluated) : 0 },
+		Counter { .name = "tiles.held", .value = tree ? double(tree->growth->tiles.numbers.size()) : 0 },
+		Counter { .name = "bytes.tiles", .value = tree ? double(tree->growth->tiles.bytes) : 0 },
 	};
 }
 
@@ -77,16 +122,17 @@ std::vector<Block> treeBlocks(const Renderer& renderer) {
 }
 
 Plugin geometryTreePlugin() {
-	Hooks hooks      = noHooks();
-	hooks.buildWorld = treeBuilt;
-	hooks.published  = treePublished;
-	hooks.blocks     = treeBlocks;
+	Hooks hooks        = noHooks();
+	hooks.buildWorld   = treeBuilt;
+	hooks.prepareFrame = treePrepared;
+	hooks.published    = treePublished;
+	hooks.blocks       = treeBlocks;
 	return Plugin {
 		.name   = "geometry/tree",
 		.point  = Point::Geometry,
 		.effect = Effect::Exact,
 		.hooks  = hooks,
-		.reads  = Reads::Nothing,
+		.reads  = everyRead(),
 		.after  = {},
 	};
 }

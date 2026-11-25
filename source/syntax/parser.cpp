@@ -678,6 +678,16 @@ Statement parseRepeat(Parser& parser, const Location& location) {
 	return repeat;
 }
 
+Statement parseTiles(Parser& parser, const Location& location) {
+	Statement tiles   = makeStatement(StatementKind::Tiles, location, "tiles");
+	tiles.expressions = { parsePostfix(parser) };
+	if (tiles.expressions[0].kind != ExpressionKind::Call) {
+		fail(location, "tiles take a step");
+	}
+	tiles.body = parseBlock(parser);
+	return tiles;
+}
+
 Statement parsePlace(Parser& parser, const Location& location, bool block) {
 	Statement place   = makeStatement(StatementKind::Place, location, "");
 	place.expressions = parseModifiers(parser);
@@ -752,6 +762,9 @@ Statement parseStatement(Parser& parser) {
 	}
 	if (isOneOf(token, { "repeat" })) {
 		return parseRepeat(parser, token.location);
+	}
+	if (isName(token, "tiles") && isSymbol(peekToken(parser, 1), "(")) {
+		return parseTiles(parser, token.location);
 	}
 	return parseCall(parser, token.location);
 }

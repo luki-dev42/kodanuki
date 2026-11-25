@@ -5,7 +5,7 @@ render {
 	height    = 800;
 	tolerance = 2;
 	seed      = 24301;
-	far       = 9;
+	far       = 20;
 }
 
 camera {

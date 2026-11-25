@@ -107,6 +107,11 @@ enum class StatementKind : std::uint8_t {
 	 * call.
 	 */
 	Call,
+	/**
+	 * A tiles block, its expression the call with its step and its body
+	 * the block each tile runs.
+	 */
+	Tiles,
 };
 
 /**

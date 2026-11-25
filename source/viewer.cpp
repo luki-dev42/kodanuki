@@ -8,7 +8,7 @@ using namespace kodanuki;
 
 int main(int argc, char** argv) {
 	if (argc < 2) {
-		std::fprintf(stderr, "usage: kodanuki_view scene.sdf [--size w h] [--seed n] [--tolerance t] [--margin m] [--samples n] [--batch n] [--split n] [--surfaces n] [--collisions n] [--threads n] [--use key=value ...] [--use source=scene+flight] [--use sink=window+frames] [--use observer=progress+metrics|none] [--region lx ly lz hx hy hz] [--least e] [--depth n] [--internal w h] [--time t] [--out directory]\n");
+		std::fprintf(stderr, "usage: kodanuki_view scene.sdf [--size w h] [--seed n] [--tolerance t] [--margin m] [--samples n] [--batch n] [--split n] [--surfaces n] [--collisions n] [--threads n] [--use key=value ...] [--use source=scene+flight] [--use sink=window+frames] [--use observer=progress+metrics|none] [--region lx ly lz hx hy hz] [--least e] [--depth n] [--memory megabytes] [--internal w h] [--time t] [--out directory]\n");
 		return 1;
 	}
 

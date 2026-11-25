@@ -128,8 +128,12 @@ void sceneTaken(Renderer& renderer, SceneFile next) {
 	const Change change      = sceneChange(file, next);
 	renderer.frame.change    = joinedChange(renderer.frame.change, change);
 	renderer.frame.recounted = renderer.frame.recounted || file.scene.leaves.size() != next.scene.leaves.size();
+	carriedTiles(file.scene, next.scene);
 	if (changedBy(change, Change::Shapes)) {
 		file.scene = std::move(next.scene);
+	}
+	if (!changedBy(change, Change::Shapes)) {
+		file.scene.tiles = std::move(next.scene.tiles);
 	}
 	file.looks    = std::move(next.looks);
 	file.lighting = std::move(next.lighting);

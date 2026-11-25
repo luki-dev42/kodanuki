@@ -6,7 +6,6 @@
 #include "plugins/geometry/tree/tree.h"
 #include "sdf/scene.h"
 
-#include <array>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -22,6 +21,11 @@ struct GrowContext {
 	 */
 	const Scene& scene;
 	/**
+	 * The slots the cells' objects are named by (slotProgram()), none
+	 * where they are named by their index in the scene.
+	 */
+	const std::vector<ObjectSlot>& slots;
+	/**
 	 * How fine each cell must be.
 	 */
 	const Detail& detail;
@@ -34,6 +38,11 @@ struct GrowContext {
 	 * off).
 	 */
 	bool faces;
+	/**
+	 * Whether the cells are grown for a sharp ray, and so held to
+	 * sharpTolerance(): as finely outside the frame as inside it.
+	 */
+	bool sharp;
 };
 
 /**
@@ -59,9 +68,9 @@ struct Sprout {
 /**
  * The record of a subtree's root, kept apart from its nodes.
  *
- * A packed node's children must stand in a row, and subtrees finish in
- * any order, so the top of the tree copies each root's record into its
- * own rows once every subtree is placed.
+ * A packed node's children stand in a row their parent wrote, so a
+ * subtree's root node is written into the place its parent keeps for it
+ * when the subtree is placed (plugins/geometry/tree/lazy.h).
  */
 struct RootRecord {
 	/**
@@ -86,7 +95,7 @@ struct RootRecord {
  * A subtree grown by one worker, first as an octree, then packed.
  *
  * Its indices are its own until it is placed into the tree
- * (plugins/geometry/tree/build.h).
+ * (plugins/geometry/tree/lazy.h).
  */
 struct Subtree {
 	/**
@@ -133,12 +142,6 @@ struct Subtree {
 	 */
 	std::vector<std::uint16_t> cutSteps;
 	/**
-	 * Whether each surface leaf, as grown, is fitted to its cell's whole
-	 * field: one patch or a seam pair, which a pass may read against the
-	 * field. It is emptied when the subtree is packed.
-	 */
-	std::vector<bool> wholeFitted;
-	/**
 	 * The packed nodes below the root, empty until the subtree is
 	 * packed.
 	 */
@@ -165,21 +168,14 @@ Subtree growSubtree(const GrowContext& context, const Sprout& sprout);
 
 /**
  * Find what one cell holds: its tolerance, its plan and Detail's
- * verdict, which turns a kept cell into a branch.
+ * verdict, which turns a kept cell into a branch. A surface cell whose
+ * run proves that no face crosses it (surfacelessSide) is an empty or
+ * a filled leaf.
  *
  * @param context What every cell reads.
  * @param sprout The cell.
  */
 Plan planCell(const GrowContext& context, const Sprout& sprout);
-
-/**
- * Return a branch's eight children, in octant order, sharing the
- * branch's programs.
- *
- * @param sprout The branch.
- * @param programs The branch's programs, which the children cut.
- */
-std::array<Sprout, 8> childSprouts(const Sprout& sprout, const std::shared_ptr<const CellPrograms>& programs);
 
 /**
  * Return a subtree that holds only its root cell, still empty.
@@ -208,34 +204,6 @@ void writeLeaf(Subtree& subtree, std::uint32_t cell, const Plan& plan);
  * @param cell The cell's index in the octree.
  */
 std::uint32_t openBranch(Subtree& subtree, std::uint32_t cell);
-
-/**
- * A cell of a subtree's octree to grow again.
- */
-struct Regrowth {
-	/**
-	 * The cell, with the programs it cuts: its parent's.
-	 */
-	Sprout sprout;
-	/**
-	 * The cell's index in the octree.
-	 */
-	std::uint32_t cell;
-};
-
-/**
- * Grow one cell of a subtree's octree again in place, with everything
- * below it, as growSubtree grows a cell.
- *
- * What the cell held before is left behind unread.
- *
- * A mutable reference, as rule 46 allows for build-time accumulators.
- *
- * @param context What every cell reads.
- * @param regrowth The cell and its parent's programs.
- * @param subtree The subtree.
- */
-void regrowCell(const GrowContext& context, const Regrowth& regrowth, Subtree& subtree);
 
 /**
  * Return the box of the region's root cell.

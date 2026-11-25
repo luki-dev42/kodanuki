@@ -19,6 +19,10 @@ struct CellQuery {
 	 */
 	const CellPrograms& programs;
 	/**
+	 * The slots the programs' objects are named by (GrowContext::slots).
+	 */
+	const std::vector<ObjectSlot>& slots;
+	/**
 	 * The cell.
 	 */
 	Box box;
@@ -110,6 +114,14 @@ struct RunQuery {
 	 */
 	const std::vector<std::shared_ptr<const Program>>& programs;
 	/**
+	 * The objects of the cut programs, one for one (CellPrograms::objects).
+	 */
+	const std::vector<std::uint32_t>& objects;
+	/**
+	 * The slots the objects are named by (GrowContext::slots).
+	 */
+	const std::vector<ObjectSlot>& slots;
+	/**
 	 * The cell.
 	 */
 	Box box;
@@ -126,7 +138,11 @@ struct RunQuery {
  * of that kind. Otherwise the derived faces are tried: a table that
  * says one sign is an empty or filled leaf, and at most eight faces
  * that all hold are a surface leaf of faces. A cell at the depth cap
- * whose faces are at most eight keeps them as a floor leaf. Any other
+ * whose faces are at most eight keeps them as a floor leaf. A cell that
+ * may split and whose faces are crowded or do not hold is a branch
+ * without a fit where it is at least 16 tolerances wide or cuts more
+ * than eight programs: a patch is only checked at its 35 readings, and
+ * a feature as small as a window falls between them there. Any other
  * cell is fitted with one patch over its whole field. Where that
  * strays over the tolerance and the field is a seam, the minimum of two
  * or more objects or one object's outermost hard join, each side is
@@ -180,6 +196,23 @@ FaceRun patchRun(const Fitted& fitted, double tolerance);
  * @param run The run's words.
  */
 std::vector<std::uint32_t> foldedRun(const std::vector<std::uint32_t>& run);
+
+/**
+ * Return the one side a surface leaf's run proves its whole cell on: 1
+ * where the cell is empty, 2 where it is filled, 0 where a face may
+ * cross the cell or nothing is proven.
+ *
+ * Every face must be a plane or a quadric that keeps one sign over the
+ * cell, widened and held off 0 as foldedRun does; a patch or a ring
+ * face proves nothing. Each axis' own square and linear terms are
+ * bounded together by their parabola's exact range, the mixed terms by
+ * intervals. The signs then pick one row of the run's table, which
+ * says inside or outside for the whole cell; a run of one face has no
+ * table and is inside where its face is negative.
+ *
+ * @param run The run's words; an empty run proves nothing.
+ */
+int surfacelessSide(const std::vector<std::uint32_t>& run);
 
 /**
  * Return what a run fitted to its cell's whole field reads at a point:

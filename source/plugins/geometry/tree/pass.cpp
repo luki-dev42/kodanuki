@@ -10,11 +10,9 @@ namespace kodanuki {
 
 PassMoment passMoment(PassMember member) {
 	switch (member) {
-		case PassMember::SplitBesideFiner:
 		case PassMember::CutLongPrograms:
 		case PassMember::FaceSlabs: return PassMoment::Grown;
-		case PassMember::SharedCoefficients:
-		case PassMember::SharedSubtrees: return PassMoment::Placed;
+		case PassMember::SharedCoefficients: return PassMoment::Placed;
 	}
 
 	return PassMoment::Grown;
@@ -22,11 +20,9 @@ PassMoment passMoment(PassMember member) {
 
 Subtree passSubtree(PassMember member, const PassQuery& query, PassState& state) {
 	switch (member) {
-		case PassMember::SplitBesideFiner: return splitBesideFiner(query.context, query.subtree, query.programs);
 		case PassMember::CutLongPrograms: return cutLongPrograms(query.context, query.subtree, query.programs);
 		case PassMember::FaceSlabs: return faceSlabs(query.subtree);
 		case PassMember::SharedCoefficients: return sharedCoefficients(query.tree, query.subtree, state.coefficients);
-		case PassMember::SharedSubtrees: return sharedSubtrees(query.tree, query.subtree, state.subtrees);
 	}
 
 	return query.subtree;
@@ -35,7 +31,6 @@ Subtree passSubtree(PassMember member, const PassQuery& query, PassState& state)
 PassState emptyPassState() {
 	return PassState {
 		.coefficients = emptySharedRuns(),
-		.subtrees     = emptySharedNodes(),
 	};
 }
 
@@ -66,6 +61,7 @@ LandedFace passLandedFace(const std::uint32_t* run, int face, const float* unit)
 		.exact    = false,
 		.gradient = { 0, 0, 0 },
 		.leaf     = noLeaf,
+		.painter  = 0,
 		.owner    = noFaceOwner,
 	};
 
@@ -75,6 +71,7 @@ LandedFace passLandedFace(const std::uint32_t* run, int face, const float* unit)
 	const FacedFace known = facedFace(run, std::uint32_t(face));
 	landed.exact          = known.exact;
 	landed.leaf           = known.leaf;
+	landed.painter        = known.painter;
 	landed.owner          = known.owner;
 	if (known.exact && unit != nullptr) {
 		landed.gradient = facedGradient(run, std::uint32_t(face), unit);
@@ -87,11 +84,11 @@ bool passReadsCellPast() {
 }
 
 std::vector<PassMember> defaultPassMembers() {
-	return { PassMember::SplitBesideFiner, PassMember::CutLongPrograms, PassMember::FaceSlabs, PassMember::SharedCoefficients, PassMember::SharedSubtrees };
+	return { PassMember::CutLongPrograms, PassMember::FaceSlabs, PassMember::SharedCoefficients };
 }
 
 std::optional<PassMember> passMemberNamed(const std::string& name) {
-	const std::array<std::string, 5> names = { "split_beside_finer", "cut_long_programs", "face_slabs", "shared_coefficients", "shared_subtrees" };
+	const std::array<std::string, 3> names = { "cut_long_programs", "face_slabs", "shared_coefficients" };
 	for (std::size_t k = 0; k < names.size(); ++k) {
 		if (names[k] == name) {
 			return PassMember(k);

@@ -232,7 +232,10 @@ void sceneAt(Renderer& renderer, double time);
  * Take a scene evaluated anew as the renderer's, adding to the frame's
  * change what differs from the scene before, part by part: Lights,
  * Looks and Shapes. The shapes are kept where they are the same, so the
- * world built of them stays valid.
+ * world built of them stays valid; their tiles blocks are then the new
+ * scene's, which make the same tiles where the tiles read so far
+ * (sameShapes()), and the new scene takes over what the tiles gathered
+ * (carriedTiles()).
  *
  * @param renderer The renderer.
  * @param next The scene, the command line's settings applied.

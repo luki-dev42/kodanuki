@@ -1,6 +1,7 @@
 #include "plugins/execution/packets/answer.h"
 #include "plugins/execution/packets/packet.h"
 #include "plugins/geometry/tree/hit.h"
+#include "plugins/geometry/tree/lazy.h"
 #include "plugins/geometry/tree/leaf.h"
 #include "plugins/geometry/tree/pass.h"
 #include "plugins/geometry/tree/span.h"
@@ -117,15 +118,15 @@ std::vector<RaySet> raySets(const Geometry& geometry, const Lens& lens, const Lo
 		if (material != noMaterial && material < looks.materials.size() && looks.materials[material].kind == MaterialKind::Glass) {
 			for (int k = 0; k < 4; ++k) {
 				const math::Vector into = math::normalized(ray.direction * 0.8 - hit.normal * (0.6 * unit(random)));
-				inside.rays.push_back(Ray { .origin = hit.point - hit.normal * lift, .direction = into, .far = std::numeric_limits<float>::infinity(), .inside = true, .within = material });
+				inside.rays.push_back(Ray { .origin = hit.point - hit.normal * lift, .direction = into, .far = std::numeric_limits<float>::infinity(), .inside = true, .sharp = 1, .within = material });
 			}
 		}
 		const math::Vector origin = hit.point + hit.normal * lift;
-		bounce.rays.push_back(Ray { .origin = origin, .direction = cosineAround(hit.normal, random), .far = std::numeric_limits<float>::infinity(), .inside = false, .within = 0 });
+		bounce.rays.push_back(Ray { .origin = origin, .direction = cosineAround(hit.normal, random), .far = std::numeric_limits<float>::infinity(), .inside = false, .sharp = 1, .within = 0 });
 		const math::Vector target = { region.lower[0] + region.size[0] * unit(random), region.lower[1] + region.size[1] * (0.6 + 0.4 * unit(random)), region.lower[2] + region.size[2] * unit(random) };
 		const math::Vector toward = target - origin;
 		const double reach        = math::length(toward);
-		shadow.rays.push_back(Ray { .origin = origin, .direction = toward * (1 / reach), .far = float(reach), .inside = false, .within = 0 });
+		shadow.rays.push_back(Ray { .origin = origin, .direction = toward * (1 / reach), .far = float(reach), .inside = false, .sharp = 1, .within = 0 });
 	}
 	return { camera, bounce, shadow, inside };
 }
@@ -547,9 +548,9 @@ int main(int argc, char** argv) {
 		}
 	}
 	const Clock::time_point built0 = Clock::now();
-	const PathsWorld paths         = pathsWorldOf(file, choices);
-	const BuiltGeometry built      = builtGeometry(file, choices, paths);
-	const double buildSeconds      = secondsSince(built0);
+	BuiltGeometry built            = builtGeometry(file, choices, false);
+	openEveryCell(built.tree, choices.threads);
+	const double buildSeconds = secondsSince(built0);
 
 	const Geometry geometry = treeGeometry(file.scene, built.tree);
 

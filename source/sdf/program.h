@@ -53,12 +53,37 @@ enum class Opcode : std::uint8_t {
 	Select,
 };
 
+/**
+ * One step of a program: an operation on the values of earlier steps.
+ *
+ * A step is 24 bytes. Its operands are 16 bits wide, so a program
+ * holds at most mostProgramSteps steps.
+ */
 struct Step {
+	/**
+	 * The operation.
+	 */
 	Opcode opcode;
-	std::uint32_t a;
-	std::uint32_t b;
-	std::uint32_t c;
+	/**
+	 * The first operand, as an index into the program's steps; the
+	 * offset into the arguments for Opcode::Argument.
+	 */
+	std::uint16_t a;
+	/**
+	 * The second operand, as an index into the program's steps.
+	 */
+	std::uint16_t b;
+	/**
+	 * The third operand, as an index into the program's steps.
+	 */
+	std::uint16_t c;
+	/**
+	 * The number of an Opcode::Constant.
+	 */
 	double value;
+	/**
+	 * The leaf the step came from, noLeaf for none.
+	 */
 	std::uint32_t leaf;
 };
 
@@ -70,6 +95,12 @@ struct Program {
 };
 
 constexpr std::uint32_t noLeaf = 0xFFFFFFFFu;
+
+/**
+ * The most steps a program holds: 65,535, so that every step, and the
+ * one a build appends to a whole program, is named by a 16-bit operand.
+ */
+constexpr std::size_t mostProgramSteps = 0xFFFF;
 
 /**
  * Where a program's value at a point comes from.

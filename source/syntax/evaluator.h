@@ -184,6 +184,76 @@ struct Context {
 };
 
 /**
+ * The files a scene was read from, with their statements, which
+ * locations and definitions point into.
+ */
+struct ParsedFiles {
+	/**
+	 * The paths of the files read.
+	 */
+	std::list<std::string> files;
+	/**
+	 * The statements of every file read.
+	 */
+	std::list<std::vector<Statement>> trees;
+	/**
+	 * A key of every file's path and text, in the order they were read.
+	 */
+	std::uint64_t key;
+};
+
+/**
+ * What the tiles of one `tiles` block run from: the block, and the
+ * definitions and bindings of the file where it stands
+ * (TileBlock::snapshot).
+ */
+struct TileSnapshot {
+	/**
+	 * The tiles statement.
+	 */
+	const Statement* block;
+	/**
+	 * The files the statements were read from, kept as long as a tile
+	 * may run.
+	 */
+	std::shared_ptr<const ParsedFiles> parsed;
+	/**
+	 * The functions and shapes defined before the block, by name.
+	 */
+	std::unordered_map<std::string, const Statement*> definitions;
+	/**
+	 * The bindings of the top level where the block stands, `time` among
+	 * them.
+	 */
+	Scope scope;
+	/**
+	 * The default grey material.
+	 */
+	std::int32_t defaultMaterial;
+};
+
+/**
+ * One tile's shapes as its block made them.
+ */
+struct TileContent {
+	/**
+	 * The tile's own geometry: its programs, arguments, leaves, nodes
+	 * and objects, each object compiled into one program as a load does,
+	 * its leaves numbered from 0.
+	 */
+	Scene scene;
+	/**
+	 * The names of the top level the tile read.
+	 */
+	std::set<std::string> reads;
+	/**
+	 * The first error as `file:line:column: message`, empty where the
+	 * tile ran; the scene then holds no object.
+	 */
+	std::string error;
+};
+
+/**
  * The state of a scene while its files run.
  */
 struct Evaluator {
@@ -204,13 +274,10 @@ struct Evaluator {
 	 */
 	Shot& shot;
 	/**
-	 * The paths of the files read, which locations point into.
+	 * The files read and their statements; null while a tile runs, which
+	 * reads no file.
 	 */
-	std::list<std::string> files;
-	/**
-	 * The statements of every file read, which definitions point into.
-	 */
-	std::list<std::vector<Statement>> trees;
+	std::shared_ptr<ParsedFiles> parsed;
 	/**
 	 * The files already imported, which are not read again.
 	 */
@@ -223,6 +290,11 @@ struct Evaluator {
 	 * The scopes, the file's top level first.
 	 */
 	std::vector<Scope> scopes;
+	/**
+	 * The bindings a running tile reads below its own top level, shared
+	 * with every tile of its block and never changed; null outside a tile.
+	 */
+	const Scope* shared;
 	/**
 	 * The first scope the running definition sees past the top level.
 	 */
@@ -245,6 +317,15 @@ struct Evaluator {
 	 * Whether the file has read the name `time`.
 	 */
 	bool timed;
+	/**
+	 * Whether a tile is running: it may make no material, coat or group,
+	 * say no rule and hold no setting or import.
+	 */
+	bool tiled;
+	/**
+	 * The names of the top level a running tile looked up, found or not.
+	 */
+	std::set<std::string> reads;
 };
 
 /**
@@ -360,13 +441,46 @@ struct LoadedScene {
  * one program. The first error stops the load and comes back as
  * `file:line:column: message`, with an empty scene. The file starts
  * with one binding at its top level, `time`, which no `let` may
- * change; SceneFile.timed says whether the file read it.
+ * change; SceneFile.timed says whether the file read it, and is set
+ * for a file with tiles, whose tiles may read it.
+ *
+ * A `tiles` block at the top level runs no tile: it keeps a snapshot of
+ * the definitions and bindings where it stands
+ * (Scene::tiles), from which evaluatedTile() runs each tile later. Its
+ * body may not hold settings, imports, definitions or other tiles, nor
+ * make materials or coats, say rules or put shapes in groups; the load
+ * refuses what it can see of these in the body, and a running tile
+ * refuses the rest.
  *
  * @param path The file.
  * @param time The number `time` is bound to: 0 for a still, a frame's
  *        time for a frame of a clip.
  */
 LoadedScene loadScene(const std::string& path, double time);
+
+/**
+ * Run one tile of a scene's tiles blocks and return its shapes, or the
+ * first error.
+ *
+ * The block's body runs from its snapshot (TileSnapshot) with one more
+ * binding, `tile`, the list [i, j, k] of the tile's index, and every
+ * shape it emits is moved by the index times the block's step. The tile
+ * reads the snapshot's bindings without copying them, and a `let` of a
+ * top-level name binds it in the tile's own top level, so tiles are run in
+ * any order, on any thread, each alone. Its objects are cut and
+ * compiled as a load does; its leaves name the snapshot's materials.
+ *
+ * @param scene The scene the block is of.
+ * @param place The block and the tile.
+ */
+TileContent evaluatedTile(const Scene& scene, const TilePlace& place);
+
+/**
+ * Return where a tiles block stands in its file.
+ *
+ * @param block The block.
+ */
+const Location& tileBlockLocation(const TileBlock& block);
 
 /**
  * Return a list of values.

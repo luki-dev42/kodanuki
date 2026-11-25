@@ -5,7 +5,8 @@ A scene is one `.sdf` file, written by hand. It is C-like: `//` and
 statement, braces make a block. It runs once when it loads, and once
 more for every frame of a clip (see Time). What it leaves behind is a flat list of shapes, each a
 point function placed and painted, plus the camera, lights, sky and
-settings. Space is z-up, lengths are metres, angles are radians.
+settings, and any `tiles` blocks, which make shapes where rays come
+(see Tiles). Space is z-up, lengths are metres, angles are radians.
 
 Draft for milestone 1. "Open" marks what is still to be decided.
 
@@ -146,6 +147,9 @@ that is again such a union is cut the same way. The field is the same
 either way; a cell of the tree then holds only the parts near it.
 Smooth joins, cuts and clips keep their operands in one object.
 
+An object's program holds at most 65,535 steps; a longer one is an
+error, `name has more than 65535 steps`.
+
 ## Repeats
 
 ```
@@ -165,6 +169,58 @@ its body once per pass instead. A count is a whole number of one or
 more, and a number spreads over all three. Like a join, a `repeat`
 takes modifiers without `with`, and its copies stand side by side as
 statements do.
+
+## Tiles
+
+```
+tiles(step = [64, 64, 400], from = [-100, -100, 0], to = [99, 99, 0]) {
+	at([32, 32, 0]) house(tile.x * 7919 + tile.y);
+}
+```
+
+A `tiles` block makes shapes where rays come, one tile at a time, for
+a world larger than a load could hold. `step` cuts space into boxes, a
+number spreading over all three and each above 0: tile `[i, j, k]`
+holds the points from `[i, j, k] * step` up to the next. The block's
+body runs once for each tile the renderer needs, with one more binding,
+`tile`, the list `[i, j, k]`, and every shape it emits is moved by
+`tile * step`. It starts from the bindings of the top level where the
+block stands, none made after it, and its `let`s are its own, even of
+a top-level name: tiles run in any order, each alone.
+
+- A block stands at the top level of a file, not in a loop, a shape or
+  another block, and takes `step`, and `from` and `to` (below).
+- `from` and `to` bound the block: the tiles from index `from` up to
+  index `to`, both included, run, and no other. They come together
+  (`tiles take from and to together`), each a vector of 3 whole numbers
+  (`a tile's from and to are 3 whole numbers each`), `from` at most `to`
+  along every axis (`a tile's from is at most its to along x, y and
+  z`). Without them every index runs. Bound a finite world: outside the
+  bounds the renderer spends nothing on tiles, while without them every
+  cell a ray crosses, the sky's too, is cut down to 4 steps wide to run
+  the tiles it meets, even empty ones.
+- Its body, and the shapes it calls, may not hold settings or imports,
+  define functions or shapes, hold `tiles`, make materials or coats,
+  say rules or put shapes in groups (`tiles may not ...`); it paints
+  with the materials made before it.
+- A tile's shapes are trusted to stay inside its box and are not
+  checked; one that reaches out leaves wrong cells along the edge (steps,
+  holes), so a shape that crosses a tile's edge is clipped to the tile
+  and drawn by every tile it touches.
+- Tiles run on the render threads when a ray first enters a cell of
+  the tree that meets them, and are run and held only where their box
+  meets the reach (the sphere of radius `far` about the camera's eye),
+  which follows the camera. A tile runs again when the scene's text or a top-level
+  binding it read, `time` among them, changes.
+- A step is at least 16 least tolerances (1e-7 of the first region,
+  or `--least`) along every axis, else
+  `a tile's step is at least 16 times the least tolerance, ... m`.
+- An error in a tile ends `kodanuki` with exit 1; the viewer prints it
+  once and leaves the tile empty.
+- `sampler/glowing_surfaces`, `sampler/toward_mirrors` and
+  `geometry/sphere_trace` see only the scene's own objects: a glowing
+  tile shape is met, never aimed at. The tree's region grows with the
+  camera and never shrinks.
 
 ## Materials
 
@@ -300,7 +356,12 @@ group(stage) paint(marble) box([4, 4, 0.2], 0);        // a shape of the group s
   the shape, as if it were not there; everything else sees it.
 - `shadows = 0`: lines to the lights pass through the shape, and a ray
   that scatters toward it looks past it for the lights before it stands
-  on it, so it casts no shadow, direct or indirect.
+  on it, so it casts no shadow, direct or indirect. On a body that
+  turns light aside (a fog), it is the body's shadow on what lies
+  outside it that goes: a line to a light, or a look past it, from
+  outside crosses the body undimmed, while light reaching a point
+  inside it is still dimmed by the body as far as its boundary, and
+  no farther.
 - `caustics = 0`: no caustic is focused by the shape or lands on it: a
   path that has passed a dull surface and then only sharp ones may not
   end on a light where one of those surfaces, or the dull one, says so.
@@ -381,8 +442,7 @@ light moon   { direction = [...]; angle = 0.0093; power = [...]; }
 
 Every light also takes `reaches` and `caustics` (see Rules).
 
-`render` also takes `far`, the reach of the automatic region (default
-1000), `samples`, the most samples a pixel draws, `surfaces`, the most
+`render` also takes `far`, the radius of the reach (default 1000), `samples`, the most samples a pixel draws, `surfaces`, the most
 surfaces a path stands on (default 10, at least 1; it scatters from one
 fewer), and `collisions`, the most times a path turns aside inside
 scattering bodies (default 256, at least 1). Collisions are counted
@@ -410,9 +470,14 @@ the default, lets the stopping choose: the trial draws groups of 2,
 and each pixel's count pass takes the power of two up to 8 that its
 neighbours' trials say costs least, from how their noise parts between
 the shared stretch and the rest (a fixed count without a trial takes
-1). A pixel's count is cut to whole groups. The region the tree is built over is found by sampling the
-scene from the camera out to `far`. Shapes that never end, such as a
-ground plane, are cut off at `far`.
+1). A pixel's count is cut to whole groups. The reach is the sphere
+of radius `far` about the camera's eye: every object is cut to it, so
+nothing farther than `far` from the eye is met, behind the eye as much
+as ahead, and shapes that never end, such as a ground plane, end at
+one even distance (haze hides the edge). It moves with the eye. The
+tree's region covers the objects out to the reach's bounding cube and
+grows as the reach or a moved object leaves it
+(reference_geometry.md).
 
 `clip` makes the file a video. `duration` is its length in seconds
 and `rate` its frames a second; it has `round(duration * rate)`

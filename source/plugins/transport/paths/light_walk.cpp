@@ -87,6 +87,7 @@ Ray openRay(const math::Vector& origin, const math::Vector& direction) {
 		.direction = direction,
 		.far       = std::numeric_limits<float>::infinity(),
 		.inside    = false,
+		.sharp     = 0,
 		.within    = noMaterial,
 	};
 }
@@ -388,7 +389,8 @@ bool passedFirst(const Tracing& tracing, LightWalk& walk, const Hit& hit) {
 		.direction = path.heading,
 		.far       = std::numeric_limits<float>::infinity(),
 		.inside    = entering,
-		.within    = entering ? tracing.scene.leaves[hit.leaf].material : noMaterial,
+		.sharp     = 0,
+		.within    = entering ? sceneLeaf(tracing.scene, hit.leaf).material : noMaterial,
 	};
 
 	walk.phase = LightPhase::Flying;
@@ -429,6 +431,7 @@ void lightCrossed(LightWalk& walk, const Spectrum4& kept, const Vertex& vertex) 
 		.direction = path.heading,
 		.far       = std::numeric_limits<float>::infinity(),
 		.inside    = medium != noMaterial,
+		.sharp     = 0,
 		.within    = medium,
 	};
 

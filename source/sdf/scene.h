@@ -7,10 +7,16 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
+#include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
 namespace kodanuki {
+
+struct TileSnapshot;
+struct TileLeaves;
 
 /**
  * How two operands of a node are joined, or a node that is a leaf.
@@ -744,6 +750,78 @@ struct Clouds {
 };
 
 /**
+ * One tile of a scene's tiles blocks.
+ */
+struct TilePlace {
+	/**
+	 * The block, as an index into Scene::tiles.
+	 */
+	std::uint32_t block;
+	/**
+	 * The tile's place in the block's grid, along x, y and z: the tile
+	 * holds the points from index times the step up to the next index.
+	 */
+	std::int64_t index[3];
+};
+
+/**
+ * The top-level names the tiles of one block have read so far, shared by
+ * the scenes evaluated one after another from the same file.
+ */
+struct TileReads {
+	/**
+	 * The names.
+	 */
+	std::set<std::string> names;
+};
+
+/**
+ * A `tiles` block: shapes made where rays come, one tile at a time.
+ *
+ * Its body is run for a tile when the geometry first needs the tile, on
+ * whichever thread asks, from the snapshot of the file the load kept
+ * (evaluatedTile(), syntax/evaluator.h).
+ */
+struct TileBlock {
+	/**
+	 * How wide a tile is along x, y and z, each above 0.
+	 */
+	double step[3];
+	/**
+	 * The lowest tile index the block runs along x, y and z (`from`),
+	 * lowestTile where it names no bounds.
+	 */
+	std::int64_t from[3];
+	/**
+	 * The highest tile index the block runs along x, y and z (`to`),
+	 * highestTile where it names no bounds.
+	 */
+	std::int64_t to[3];
+	/**
+	 * A key of the text of every file the scene read.
+	 */
+	std::uint64_t source;
+	/**
+	 * A key of each binding of the top level where the block stands, by
+	 * its name: two blocks of one source whose tiles read only bindings of
+	 * equal keys make the same tiles.
+	 */
+	std::map<std::string, std::uint64_t> bindings;
+	/**
+	 * The names of the top level its tiles have read so far (TileReads).
+	 * The geometry adds to it as it runs tiles; the scene evaluated next
+	 * takes it over (carriedTiles(), sdf/compare.h).
+	 */
+	std::shared_ptr<TileReads> reads;
+	/**
+	 * What a tile is run from: the block, the definitions and bindings
+	 * where it stands and the files they were read from, the syntax
+	 * layer's own.
+	 */
+	std::shared_ptr<const TileSnapshot> snapshot;
+};
+
+/**
  * A scene's geometry: its programs, shapes and objects.
  */
 struct Scene {
@@ -774,6 +852,46 @@ struct Scene {
 	 * line of steps at load, matching the objects one for one.
 	 */
 	std::vector<Program> objectPrograms;
+	/**
+	 * The `tiles` blocks, in the order the file says them.
+	 */
+	std::vector<TileBlock> tiles;
+	/**
+	 * The leaves of the tiles the geometry has run so far, which hits on
+	 * them name from tileLeafBase up (sceneLeaf()); null for a scene
+	 * without tiles. The geometry fills it while rays run; the scene
+	 * evaluated next takes it over (carriedTiles()).
+	 */
+	std::shared_ptr<TileLeaves> tileLeaves;
+};
+
+/**
+ * Where a leaf of a tile is kept: the tile's own geometry, which the
+ * geometry keeps while the tile is held, and the leaf's place in it.
+ */
+struct TileLeaf {
+	/**
+	 * The tile's geometry.
+	 */
+	const Scene* scene;
+	/**
+	 * The leaf, as an index into its Scene::leaves.
+	 */
+	std::uint32_t leaf;
+};
+
+/**
+ * The leaves of a scene's tiles, at their index less tileLeafBase.
+ *
+ * The geometry reserves the list once, so that it never moves, and adds
+ * a tile's leaves under its lock while other threads read the leaves
+ * of tiles added before.
+ */
+struct TileLeaves {
+	/**
+	 * The leaves; a free place names no scene.
+	 */
+	std::vector<TileLeaf> leaves;
 };
 
 /**
@@ -903,6 +1021,24 @@ constexpr std::size_t mostGroups = 64;
 constexpr std::size_t fewestUnionSteps = 512;
 
 /**
+ * The least leaf index of a tile's leaf (TileLeaves): indices below it
+ * name Scene::leaves.
+ */
+constexpr std::uint32_t tileLeafBase = 0x80000000u;
+
+/**
+ * The lowest tile index a tiles block without bounds runs along an axis
+ * (TileBlock::from).
+ */
+constexpr std::int64_t lowestTile = -(std::int64_t(1) << 52);
+
+/**
+ * The highest tile index a tiles block without bounds runs along an axis
+ * (TileBlock::to).
+ */
+constexpr std::int64_t highestTile = std::int64_t(1) << 52;
+
+/**
  * Return how many frames a clip has: its duration times its rate,
  * rounded, at least one.
  *
@@ -919,6 +1055,15 @@ int clipFrames(const Clip& clip);
  * @param probe The point and the registers.
  */
 double leafDistance(const Scene& scene, const Leaf& leaf, const Probe& probe);
+
+/**
+ * Return a leaf of a scene: one of Scene::leaves, or a tile's from
+ * tileLeafBase up (TileLeaves).
+ *
+ * @param scene The scene.
+ * @param leaf The leaf, not noLeaf.
+ */
+const Leaf& sceneLeaf(const Scene& scene, std::uint32_t leaf);
 
 /**
  * Return a node's distance at a point, its children joined as the node
@@ -985,7 +1130,9 @@ Step binaryStep(Opcode opcode, std::uint32_t a, std::uint32_t b);
  *
  * Each leaf is inlined with its placement, hard joins become minima and
  * maxima, and smooth joins one smooth minimum. Every step carries the
- * leaf it came from; a join carries its left operand's.
+ * leaf it came from; a join carries its left operand's. A program of
+ * more than mostProgramSteps steps before its unread steps are dropped
+ * comes back that long and is not to be run: the load refuses it.
  *
  * @param scene The scene.
  * @param object The object, as an index into Scene::objects.
@@ -994,10 +1141,12 @@ Program objectProgram(const Scene& scene, std::uint32_t object);
 
 /**
  * Compile one leaf alone, with its placement and stretch, into a
- * program over world space whose steps all carry the leaf.
+ * program over world space whose steps all carry the leaf; a tile's
+ * leaf is compiled from its tile's geometry (sceneLeaf()).
  *
  * @param scene The scene.
- * @param leaf The leaf, as an index into Scene::leaves.
+ * @param leaf The leaf, as an index into Scene::leaves or from
+ *        tileLeafBase up.
  */
 Program leafProgram(const Scene& scene, std::uint32_t leaf);
 

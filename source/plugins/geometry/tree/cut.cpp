@@ -143,7 +143,7 @@ Step constantStep(const Step& step, double value) {
 Step negatedStep(const Step& step, std::uint32_t operand) {
 	Step negated   = step;
 	negated.opcode = Opcode::Negate;
-	negated.a      = operand;
+	negated.a      = std::uint16_t(operand);
 	negated.b      = 0;
 	negated.c      = 0;
 	return negated;
@@ -226,9 +226,9 @@ Step positiveSquared(const Step* steps, const Step& step) {
 Step aliasedOperands(const Step& original, const std::uint32_t* alias) {
 	const int count = operandCount(original.opcode);
 	Step step       = original;
-	step.a          = count > 0 ? alias[original.a] : original.a;
-	step.b          = count > 1 ? alias[original.b] : 0;
-	step.c          = count > 2 ? alias[original.c] : 0;
+	step.a          = count > 0 ? std::uint16_t(alias[original.a]) : original.a;
+	step.b          = count > 1 ? std::uint16_t(alias[original.b]) : 0;
+	step.c          = count > 2 ? std::uint16_t(alias[original.c]) : 0;
 	return step;
 }
 
@@ -500,32 +500,6 @@ Box regionBox(const Region& region) {
 	return Box {
 		.axes = { regionSpan(region, 0), regionSpan(region, 1), regionSpan(region, 2) },
 	};
-}
-
-math::Interval placedSpan(const Region& region, const PlacedLeaf& leaf, int axis) {
-	const double size  = std::ldexp(region.size[axis], -leaf.level);
-	const double lower = region.lower[axis] + double(leaf.place[axis]) * size;
-	return math::Interval {
-		.lower = lower,
-		.upper = lower + size,
-	};
-}
-
-Box placedBox(const Region& region, const PlacedLeaf& leaf) {
-	return Box {
-		.axes = { placedSpan(region, leaf, 0), placedSpan(region, leaf, 1), placedSpan(region, leaf, 2) },
-	};
-}
-
-double footprintAt(const View& view, const math::Vector& p) {
-	const math::Vector towards = p - view.eye;
-	const double distance      = std::hypot(towards.x, towards.y, towards.z);
-	if (distance <= 0) {
-		return 0;
-	}
-	const double cosine    = math::dot(towards, view.forward) / distance;
-	const double narrowing = cosine > 0 ? std::max(cosine * cosine, view.corner) : view.corner;
-	return distance * view.spread * narrowing;
 }
 
 double cellProgramsField(const CellPrograms& programs, const math::Vector& p) {

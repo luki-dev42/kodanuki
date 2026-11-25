@@ -480,6 +480,7 @@ Ray probeRay(const math::Vector& origin, const math::Vector& direction) {
 		.direction = direction,
 		.far       = std::numeric_limits<float>::infinity(),
 		.inside    = false,
+		.sharp     = 0,
 		.within    = noMaterial,
 	};
 }

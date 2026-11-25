@@ -1,10 +1,8 @@
 #pragma once
 
-#include "plugins/geometry/tree/detail.h"
-#include "plugins/geometry/tree/grow.h"
-#include "plugins/geometry/tree/pack.h"
-#include "plugins/geometry/tree/pass.h"
-#include "plugins/geometry/tree/tree.h"
+#include "core/geometry.h"
+#include "plugins/geometry/tree/boxes.h"
+#include "sdf/program.h"
 #include "sdf/scene.h"
 
 #include <cstddef>
@@ -14,139 +12,12 @@
 namespace kodanuki {
 
 /**
- * The index over the program lists and cut programs a tree holds, so
- * that one alike to one already there is not stored twice.
- *
- * Slots are open addressed, a power of two of them, and hold one more
- * than the index they name, so that 0 is free.
- */
-struct ProgramTable {
-	/**
-	 * The slots over Tree::lists.
-	 */
-	std::vector<std::uint32_t> lists;
-	/**
-	 * The slots over Tree::cuts.
-	 */
-	std::vector<std::uint32_t> cuts;
-	/**
-	 * How many slots of each are taken, lists first.
-	 */
-	std::size_t taken[2];
-};
-
-/**
- * What a build is asked for.
- */
-struct BuildInput {
-	/**
-	 * The scene's geometry.
-	 */
-	const Scene& scene;
-	/**
-	 * How fine each cell must be.
-	 */
-	const Detail& detail;
-	/**
-	 * The Build pass members that are on.
-	 */
-	const std::vector<PassMember>& passes;
-	/**
-	 * The box to build over.
-	 */
-	Region region;
-	/**
-	 * The deepest a cell may stand below the region.
-	 */
-	int depthCap;
-	/**
-	 * How many threads build, at least one.
-	 */
-	int workers;
-	/**
-	 * Whether derived faces are tried.
-	 */
-	bool faces;
-};
-
-/**
- * Everything a build holds that the finished tree does not: the top
- * of the tree, the index over program lists and the subtrees' roots.
- *
- * It is dropped when the tree is handed back.
- */
-struct BuildContext {
-	/**
-	 * What every cell reads.
-	 */
-	GrowContext grow;
-	/**
-	 * The Build pass members that are on.
-	 */
-	const std::vector<PassMember>& passes;
-	/**
-	 * The state of the passes that keep it.
-	 */
-	PassState state;
-	/**
-	 * The index over the program lists and cuts.
-	 */
-	ProgramTable programs;
-	/**
-	 * The top of the tree as an octree, grown before the workers start.
-	 * A cell that is a subtree's root is a branch whose payload names
-	 * its seed.
-	 */
-	Subtree top;
-	/**
-	 * The subtrees' roots, in the order they are handed out.
-	 */
-	std::vector<Sprout> seeds;
-	/**
-	 * How deep the seeds stand, even.
-	 */
-	int seedDepth;
-	/**
-	 * Each placed subtree's root record, matching the seeds.
-	 */
-	std::vector<RootRecord> roots;
-	/**
-	 * The box the tree covers.
-	 */
-	Region region;
-	/**
-	 * How many threads build.
-	 */
-	int workers;
-};
-
-/**
- * Build a scene's tree, streaming: each subtree is packed and written
- * as it finishes.
- *
- * The top is grown level by level until an even level holds at least
- * 128 seeds, however many workers there are. Workers take seeds in
- * order through an atomic counter; each grows its seed, runs the grown
- * passes over it and packs it. Under one lock, in the order the seeds
- * were handed out, each finished subtree is placed, put to the placed
- * passes and written at the tree's end, and its root record kept. Last
- * the top is packed, copying the root records into its rows. The tree
- * is the same whatever the number of workers. Blocks of 1 MB and more
- * are mapped on their own (largeBlocksMapped()), and the heap's free
- * memory is handed back (releasedFreeMemory()) once the top is grown and
- * after every 64 finished subtrees, outside the lock.
- *
- * @param input The scene, the Detail, the passes and the region.
- */
-Tree buildTree(const BuildInput& input);
-
-/**
  * Hand the memory the heap holds free back to the system: malloc_trim
  * where glibc is the C library, nothing elsewhere.
  *
- * A build frees far more than it keeps, spread over its workers' heaps,
- * and glibc keeps those pages; what is allocated after it would come on
- * top of them.
+ * Opening a node near the root frees far more than it keeps, spread
+ * over the threads' heaps, and glibc keeps those pages; what is
+ * allocated after it would come on top of them.
  */
 void releasedFreeMemory();
 
@@ -156,73 +27,148 @@ void releasedFreeMemory();
  * M_MMAP_THRESHOLD, which also stops glibc from raising the threshold as
  * large blocks are freed); nothing elsewhere.
  *
- * The build's large blocks (the tree's growing arrays, a subtree's
- * arrays while it is packed) would otherwise sit in the workers' arenas
- * between long-lived ones, and the arenas could not shrink after them.
+ * The tree's arrays are reserved far larger than they are filled, each
+ * as one such block, so that the pages no node was written to are never
+ * resident.
  */
 void largeBlocksMapped();
 
 /**
- * Make a build's context and grow the top of its tree, each level's
- * cells planned by the workers at once.
- *
- * @param input What the build is asked for.
+ * Return how many bytes of memory the machine has, 8 GB where the
+ * system does not say.
  */
-BuildContext buildContext(const BuildInput& input);
+std::size_t machineMemory();
 
 /**
- * Grow one seed, run the grown passes over it and pack it.
- *
- * @param context The build's context.
- * @param seed The subtree's root cell.
+ * The render's reach: the sphere of radius Render::far about the
+ * camera's eye. The tree cuts every object to it (reachedProgram()).
  */
-Subtree finishedSubtree(const BuildContext& context, const Sprout& seed);
+struct Reach {
+	/**
+	 * The sphere's centre, the camera's eye.
+	 */
+	math::Vector eye;
+	/**
+	 * The sphere's radius, infinity for a reach that cuts nothing.
+	 */
+	double far;
+};
 
 /**
- * Turn a packed subtree's indices into the tree's, as though it were
- * written at the tree's end, and store each of its cuts and program
- * lists in the tree once.
+ * Return the reach of a shot: the sphere of radius far about the
+ * camera's eye.
  *
- * A cut or a list alike to one the tree holds names that one. The
- * subtree that comes back names the tree's lists and holds none of its
- * own; its nodes, leaves and runs are still to be written.
- *
- * Mutable references, as rule 46 allows for build-time accumulators.
- *
- * @param tree The tree so far.
- * @param subtree The packed subtree.
- * @param table The index over the tree's program lists and cuts.
+ * @param shot The scene's shot.
  */
-Subtree placedSubtree(Tree& tree, const Subtree& subtree, ProgramTable& table);
+Reach shotReach(const Shot& shot);
 
 /**
- * Write a placed subtree's nodes, leaves and runs at the tree's end and
- * return its root record.
+ * Return the reach that cuts nothing, about a region's middle: a tree's
+ * reach until its first frame moves it (moveReach()).
+ *
+ * @param region The tree's region.
+ */
+Reach openReach(const Region& region);
+
+/**
+ * Return whether a box meets a reach: its nearest point lies within
+ * the sphere.
+ *
+ * @param reach The reach.
+ * @param box The box.
+ */
+bool reachMeets(const Reach& reach, const Box& box);
+
+/**
+ * Return whether a reach holds a whole box: its farthest corner lies
+ * within the sphere.
+ *
+ * @param reach The reach.
+ * @param box The box.
+ */
+bool reachHolds(const Reach& reach, const Box& box);
+
+/**
+ * Return an object's whole program cut to a reach: the program, then
+ * the sphere's field, length(p - eye) - far, and the maximum of the two
+ * as its result. The sphere's steps paint the object's least leaf. A
+ * program too long to take the steps comes back as it was.
+ *
+ * @param whole The object's whole program.
+ * @param reach The reach.
+ */
+Program reachedProgram(const Program& whole, const Reach& reach);
+
+/**
+ * Move the sphere of a program cut to a reach (reachedProgram()) to
+ * another reach, in place; nothing for a program not cut.
  *
  * A mutable reference, as rule 46 allows for build-time accumulators.
  *
- * @param tree The tree so far.
- * @param placed The placed subtree.
+ * @param program The cut program.
+ * @param reach The new reach.
  */
-RootRecord writtenSubtree(Tree& tree, const Subtree& placed);
+void movedReach(Program& program, const Reach& reach);
 
 /**
- * Find the cube a scene's geometry lies in, out to the render's reach.
+ * Return the hull of the object boxes out to the render's reach: each
+ * box cut to the reach's bounding cube (reachCube()).
  *
- * It is searched with interval bounds in shrinking passes from a cube
- * of twice the reach about the camera's target, and widened by a
- * hundredth. Each pass hands the six sides' searches, split at the
- * second level, to the workers; a side's searches share their best,
- * which is the least over the side's occupied cells whatever the order.
- * The pass's cube and its eight octants are cut by the workers first,
- * so that no two searches cut the same octant at once.
+ * @param boxes The boxes of the scene's objects (ObjectBoxes::boxes).
+ * @param shot The scene's shot: the camera's eye and the render's
+ *        reach.
+ */
+Box reachedHull(const std::vector<Box>& boxes, const Shot& shot);
+
+/**
+ * Return the cube that bounds the render's reach: the cube of twice
+ * Render::far about the camera's eye.
+ *
+ * @param shot The scene's shot.
+ */
+Box reachCube(const Shot& shot);
+
+/**
+ * Return the boxes a region must hold for a scene: its objects' boxes,
+ * and where the scene has tiles, which may stand anywhere, the box of
+ * all space, which the reach cuts down to the cube about the camera's
+ * eye (reachedHull()).
+ *
+ * @param boxes The boxes of the scene's objects, or of a tree's slots.
+ * @param scene The scene.
+ */
+std::vector<Box> heldBoxes(const std::vector<Box>& boxes, const Scene& scene);
+
+/**
+ * Find the cube a scene's geometry lies in, out to the render's reach:
+ * the cube about the hull of the object boxes, each cut to the reach's
+ * bounding cube (reachCube()), widened by a hundredth.
+ *
+ * @param boxes The boxes of the scene's objects (ObjectBoxes::boxes).
+ * @param shot The scene's shot: the camera's eye and the render's
+ *        reach.
+ */
+Region boxedRegion(const std::vector<Box>& boxes, const Shot& shot);
+
+/**
+ * Find the cube a scene's geometry lies in, out to the render's reach
+ * (boxedRegion()), bounding its objects first (objectBoxes()).
  *
  * @param scene The scene's geometry.
- * @param shot The scene's shot: the camera's target and the render's
+ * @param shot The scene's shot: the camera's eye and the render's
  *        reach.
- * @param workers How many threads search.
+ * @param workers How many threads bound the objects.
  */
 Region sceneRegion(const Scene& scene, const Shot& shot, int workers);
+
+/**
+ * Return whether a box lies inside a region; an empty box lies inside
+ * any region.
+ *
+ * @param box The box.
+ * @param region The region.
+ */
+bool boxInRegion(const Box& box, const Region& region);
 
 /**
  * Return the deepest a cell may stand, from the least tolerance: the

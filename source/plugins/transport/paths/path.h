@@ -20,6 +20,13 @@ namespace kodanuki {
 constexpr std::uint32_t mostLightVertices = 9;
 
 /**
+ * The half angle a bounce must stay under to count as sharp. A path
+ * whose bounces all stay under it shows what it meets as a mirror or a
+ * lens does.
+ */
+constexpr float sharpBounce = 0.1f;
+
+/**
  * The lamp of a light walk or subpath that has none.
  */
 constexpr std::uint32_t noLamp = 0xFFFFFFFFu;
@@ -309,6 +316,11 @@ struct Path {
 	 * ray.
 	 */
 	float sharpness;
+	/**
+	 * The widest half angle any ray of the path was drawn to so far,
+	 * zero for a camera ray.
+	 */
+	float widest;
 	/**
 	 * The solid-angle density the direction member drew the ray in
 	 * flight with, zero for a camera ray or an exact draw.
@@ -676,10 +688,19 @@ std::uint64_t dimensionOf(const Coordinate& coordinate);
 bool sharedDraw(const Coordinate& coordinate);
 
 /**
+ * Return a ray's sharp flag for a path: 1 where the widest half angle
+ * the path was drawn to so far is under sharpBounce, so that it left
+ * the camera through sharp bounces only, and 0 otherwise.
+ *
+ * @param path The path.
+ */
+std::uint8_t sharpSoFar(const Path& path);
+
+/**
  * Return the ray that leaves a vertex along a direction.
  *
  * It starts lifted to the side it leaves on, inside a solid where it
- * travels in a medium.
+ * travels in a medium, and is not flagged sharp.
  *
  * @param vertex The vertex.
  * @param direction The unit direction.

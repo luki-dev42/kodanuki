@@ -293,6 +293,7 @@ LightPath standingLightPath(const JoinProbe& probe, std::vector<double>& registe
 		.direction = probe.heading,
 		.far       = 10,
 		.inside    = false,
+		.sharp     = 1,
 		.within    = noMaterial,
 	};
 

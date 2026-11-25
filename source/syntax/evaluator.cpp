@@ -1,16 +1,19 @@
 #include "syntax/evaluator.h"
 
+#include "sdf/compare.h"
 #include "sdf/numbers.h"
 #include "syntax/compile.h"
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -170,6 +173,12 @@ std::uint32_t slotOf(Evaluator& evaluator, const Value& value) {
 	return constantSlot(*evaluator.compiler, value.number);
 }
 
+void refusedInTiles(const Evaluator& evaluator, const Location& location, const std::string& what) {
+	if (evaluator.tiled) {
+		fail(location, "tiles may not " + what);
+	}
+}
+
 void expectNumber(const Value& value, const Location& location) {
 	if (value.kind == ValueKind::Word) {
 		fail(location, "unknown name '" + value.word + "'");
@@ -186,9 +195,9 @@ Value emitOperation(Evaluator& evaluator, const Operation& operation) {
 
 	const Step step = {
 		.opcode = operation.opcode,
-		.a      = a,
-		.b      = b,
-		.c      = c,
+		.a      = std::uint16_t(a),
+		.b      = std::uint16_t(b),
+		.c      = std::uint16_t(c),
 		.value  = 0,
 		.leaf   = noLeaf,
 	};
@@ -431,7 +440,18 @@ Value* findName(Evaluator& evaluator, const std::string& name) {
 			return found;
 		}
 	}
+	if (evaluator.tiled) {
+		evaluator.reads.insert(name);
+	}
 	return findInScope(evaluator.scopes[0], name);
+}
+
+const Value* sharedName(const Evaluator& evaluator, const std::string& name) {
+	if (!evaluator.shared) {
+		return nullptr;
+	}
+	const auto found = evaluator.shared->find(name);
+	return found == evaluator.shared->end() ? nullptr : &found->second;
 }
 
 std::optional<Value> builtinName(const Evaluator& evaluator, const std::string& name) {
@@ -450,6 +470,9 @@ std::optional<Value> builtinName(const Evaluator& evaluator, const std::string& 
 Value lookup(Evaluator& evaluator, const std::string& name) {
 	evaluator.timed = evaluator.timed || name == "time";
 	if (const Value* found = findName(evaluator, name)) {
+		return *found;
+	}
+	if (const Value* found = sharedName(evaluator, name)) {
 		return *found;
 	}
 	if (std::optional<Value> builtin = builtinName(evaluator, name)) {
@@ -471,7 +494,7 @@ void bind(Evaluator& evaluator, const std::string& name, const Value& value) {
 		*found = value;
 		return;
 	}
-	evaluator.scopes.back()[name] = value;
+	evaluator.scopes[sharedName(evaluator, name) ? 0 : evaluator.scopes.size() - 1][name] = value;
 }
 
 Value evaluateExpression(Evaluator& evaluator, const Expression& expression);
@@ -577,6 +600,12 @@ Value evaluateExpression(Evaluator& evaluator, const Expression& expression) {
 struct Arguments {
 	std::vector<Value> positional;
 	std::map<std::string, Value> named;
+};
+
+struct TileGrid {
+	std::vector<double> step;
+	std::int64_t from[3];
+	std::int64_t to[3];
 };
 
 struct Call {
@@ -1076,6 +1105,7 @@ std::optional<Value> evaluateMaterial(Evaluator& evaluator, const Call& call) {
 	if (!kind) {
 		return std::nullopt;
 	}
+	refusedInTiles(evaluator, call.expression.location, "make a material");
 
 	Material material = {
 		.kind   = *kind,
@@ -1602,6 +1632,7 @@ Coat everywhere(const Coat& base) {
 }
 
 Context coated(Evaluator& evaluator, const Context& context, const Expression& modifier) {
+	refusedInTiles(evaluator, modifier.location, "make a coat");
 	const bool bare = modifier.items.size() == 1 && isCallOf(modifier.items[0], { "bump" });
 	if ((modifier.items.size() != 2 && !bare) || !unnamedItems(modifier)) {
 		fail(modifier.location, "coat takes an effect and a mask; a bump may leave the mask out");
@@ -1697,9 +1728,11 @@ Context modified(Evaluator& evaluator, const Context& context, const Expression&
 		return painted(context, call);
 	}
 	if (modifier.text == "rule") {
+		refusedInTiles(evaluator, modifier.location, "say rules");
 		return ruled(context, call);
 	}
 	if (modifier.text == "group") {
+		refusedInTiles(evaluator, modifier.location, "put shapes in a group");
 		return grouped(evaluator, context, call);
 	}
 	expectCount(call, 1);
@@ -2298,16 +2331,24 @@ void runScoped(Evaluator& evaluator, const std::vector<Statement>& body, const C
 	evaluator.scopes.pop_back();
 }
 
+const Value* valueBefore(const Evaluator& evaluator, const std::vector<Scope>& before, std::size_t scope, const std::string& name) {
+	const auto old = before[scope].find(name);
+	if (old != before[scope].end()) {
+		return &old->second;
+	}
+	return scope == 0 ? sharedName(evaluator, name) : nullptr;
+}
+
 void mergeBranch(Evaluator& evaluator, const std::vector<Scope>& before, const Operation& select) {
 	for (std::size_t i = 0; i < before.size(); ++i) {
 		for (auto& [name, after] : evaluator.scopes[i]) {
-			const auto old = before[i].find(name);
-			if (old != before[i].end() && !sameValue(old->second, after)) {
+			const Value* old = valueBefore(evaluator, before, i, name);
+			if (old && !sameValue(*old, after)) {
 				const Operation operands = {
 					.opcode   = Opcode::Select,
 					.a        = select.a,
 					.b        = after,
-					.c        = old->second,
+					.c        = *old,
 					.location = select.location,
 				};
 
@@ -2632,10 +2673,233 @@ void runLet(Evaluator& evaluator, const Statement& statement) {
 
 void runSettingStatement(Evaluator& evaluator, const Statement& statement) {
 	expectBuilding(evaluator, statement);
+	refusedInTiles(evaluator, statement.location, "hold settings");
 	if (failed()) {
 		return;
 	}
 	runSetting(evaluator, statement);
+}
+
+std::uint64_t textKey(std::uint64_t key, const std::string& text) {
+	return mixedKey(key, std::hash<std::string> {}(text));
+}
+
+const Expression* materialCall(const Expression& expression) {
+	if (expression.kind == ExpressionKind::Call && materialKind(expression.text)) {
+		return &expression;
+	}
+	for (const Expression& item : expression.items) {
+		if (const Expression* found = materialCall(item)) {
+			return found;
+		}
+	}
+	return nullptr;
+}
+
+std::string statementRefusal(const Statement& statement) {
+	switch (statement.kind) {
+		case StatementKind::Import: return "import";
+		case StatementKind::Function:
+		case StatementKind::Shape: return "define a function or a shape";
+		case StatementKind::Setting: return "hold settings";
+		case StatementKind::Tiles: return "hold tiles";
+		default: break;
+	}
+
+	return {};
+}
+
+std::string modifierRefusal(const Statement& statement, const Expression& modifier) {
+	if (statement.kind != StatementKind::Place) {
+		return {};
+	}
+	if (modifier.text == "coat") {
+		return "make a coat";
+	}
+	if (modifier.text == "rule") {
+		return "say rules";
+	}
+	return modifier.text == "group" ? "put shapes in a group" : "";
+}
+
+void checkTileBody(const std::vector<Statement>& body);
+
+void checkTileExpression(const Statement& statement, const Expression& expression) {
+	const std::string modifier = modifierRefusal(statement, expression);
+	if (!modifier.empty()) {
+		fail(expression.location, "tiles may not " + modifier);
+		return;
+	}
+	if (const Expression* material = materialCall(expression)) {
+		fail(material->location, "tiles may not make a material");
+	}
+}
+
+void checkTileStatement(const Statement& statement) {
+	const std::string refused = statementRefusal(statement);
+	if (!refused.empty()) {
+		fail(statement.location, "tiles may not " + refused);
+		return;
+	}
+	for (const Expression& expression : statement.expressions) {
+		checkTileExpression(statement, expression);
+	}
+	checkTileBody(statement.body);
+}
+
+void checkTileBody(const std::vector<Statement>& body) {
+	for (const Statement& statement : body) {
+		if (failed()) {
+			return;
+		}
+		checkTileStatement(statement);
+	}
+}
+
+bool positiveStep(const std::vector<double>& step) {
+	for (const double side : step) {
+		if (!(side > 0 && std::isfinite(side))) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool tileArguments(const Arguments& arguments) {
+	if (!arguments.positional.empty() || !arguments.named.contains("step")) {
+		return false;
+	}
+	return std::all_of(arguments.named.begin(), arguments.named.end(), [](const auto& named) {
+		return named.first == "step" || named.first == "from" || named.first == "to";
+	});
+}
+
+bool wholeIndex(const Value& value) {
+	return isKnown(value) && std::floor(value.number) == value.number && std::abs(value.number) <= double(highestTile);
+}
+
+bool tileBound(const Value& value) {
+	return value.kind == ValueKind::List && value.items.size() == 3 && std::all_of(value.items.begin(), value.items.end(), wholeIndex);
+}
+
+TileGrid boundedGrid(const Arguments& arguments, const Location& location, TileGrid grid) {
+	if (arguments.named.contains("from") != arguments.named.contains("to")) {
+		fail(location, "tiles take from and to together");
+		return grid;
+	}
+	if (!arguments.named.contains("from")) {
+		return grid;
+	}
+	const Value& from = arguments.named.at("from");
+	const Value& to   = arguments.named.at("to");
+	if (!tileBound(from) || !tileBound(to)) {
+		fail(location, "a tile's from and to are 3 whole numbers each");
+		return grid;
+	}
+	for (std::size_t axis = 0; axis < 3; ++axis) {
+		grid.from[axis] = std::int64_t(from.items[axis].number);
+		grid.to[axis]   = std::int64_t(to.items[axis].number);
+		if (grid.from[axis] > grid.to[axis]) {
+			fail(location, "a tile's from is at most its to along x, y and z");
+			return grid;
+		}
+	}
+	return grid;
+}
+
+TileGrid tileGrid(Evaluator& evaluator, const Expression& call) {
+	const Arguments arguments = evaluateArguments(evaluator, call);
+
+	TileGrid grid = {
+		.step = { 1, 1, 1 },
+		.from = { lowestTile, lowestTile, lowestTile },
+		.to   = { highestTile, highestTile, highestTile },
+	};
+
+	if (!tileArguments(arguments)) {
+		fail(call.location, "tiles take a step");
+		return grid;
+	}
+	grid.step = vector3(arguments.named.at("step"), call.location);
+	if (!positiveStep(grid.step)) {
+		fail(call.location, "a tile's step is above 0 along x, y and z");
+	}
+	return boundedGrid(arguments, call.location, grid);
+}
+
+std::uint64_t valueKey(const Value& value);
+
+std::uint64_t patternKey(const Pattern& pattern) {
+	std::uint64_t key = textKey(std::uint64_t(pattern.world), pattern.function->text);
+	key               = mixedKey(mixedKey(key, std::uint64_t(pattern.function->location.line)), std::uint64_t(pattern.function->location.column));
+	for (const Value& argument : pattern.arguments) {
+		key = mixedKey(key, valueKey(argument));
+	}
+	for (const Value& stop : pattern.stops) {
+		key = mixedKey(key, valueKey(stop));
+	}
+	return key;
+}
+
+std::uint64_t valueKey(const Value& value) {
+	std::uint64_t key = mixedKey(std::uint64_t(value.kind), std::bit_cast<std::uint64_t>(value.number));
+	key               = textKey(mixedKey(mixedKey(key, std::uint64_t(value.slot)), value.material), value.word);
+	key               = value.pattern ? mixedKey(key, patternKey(*value.pattern)) : key;
+	for (const Value& item : value.items) {
+		key = mixedKey(key, valueKey(item));
+	}
+	return key;
+}
+
+std::map<std::string, std::uint64_t> bindingKeys(const Scope& scope) {
+	std::map<std::string, std::uint64_t> keys;
+	for (const auto& [name, value] : scope) {
+		keys[name] = valueKey(value);
+	}
+	return keys;
+}
+
+TileBlock tileBlock(const Evaluator& evaluator, const Statement& tiles, const TileGrid& grid) {
+	const TileSnapshot snapshot = {
+		.block           = &tiles,
+		.parsed          = evaluator.parsed,
+		.definitions     = evaluator.definitions,
+		.scope           = evaluator.scopes[0],
+		.defaultMaterial = evaluator.defaultMaterial,
+	};
+
+	const TileReads reads = {
+		.names = {},
+	};
+
+	return TileBlock {
+		.step     = { grid.step[0], grid.step[1], grid.step[2] },
+		.from     = { grid.from[0], grid.from[1], grid.from[2] },
+		.to       = { grid.to[0], grid.to[1], grid.to[2] },
+		.source   = 0,
+		.bindings = bindingKeys(evaluator.scopes[0]),
+		.reads    = std::make_shared<TileReads>(reads),
+		.snapshot = std::make_shared<const TileSnapshot>(snapshot),
+	};
+}
+
+void runTiles(Evaluator& evaluator, const Statement& tiles, const Context& context) {
+	if (evaluator.compiler || evaluator.tiled || context.sink || evaluator.scopes.size() != 1) {
+		fail(tiles.location, "tiles stand at the top level of a file");
+		return;
+	}
+	checkTileBody(tiles.body);
+	const TileGrid grid = tileGrid(evaluator, tiles.expressions[0]);
+	if (failed()) {
+		return;
+	}
+	defaultMaterial(evaluator);
+	evaluator.scene.tiles.push_back(tileBlock(evaluator, tiles, grid));
+	const TileLeaves none = {
+		.leaves = {},
+	};
+
+	evaluator.scene.tileLeaves = std::make_shared<TileLeaves>(none);
 }
 
 void runStatement(Evaluator& evaluator, const Statement& statement, const Context& context) {
@@ -2658,6 +2922,7 @@ void runStatement(Evaluator& evaluator, const Statement& statement, const Contex
 		case StatementKind::Place: return runPlace(evaluator, statement, context);
 		case StatementKind::Join: return runJoin(evaluator, statement, context);
 		case StatementKind::Call: return runCall(evaluator, statement, context);
+		case StatementKind::Tiles: return runTiles(evaluator, statement, context);
 	}
 }
 
@@ -2679,7 +2944,8 @@ std::string readText(const std::string& path, const Location& location) {
 }
 
 void runFile(Evaluator& evaluator, const std::string& path, const Location& location) {
-	if (evaluator.imported.contains(path)) {
+	refusedInTiles(evaluator, location, "import");
+	if (failed() || evaluator.imported.contains(path)) {
 		return;
 	}
 	evaluator.imported.insert(path);
@@ -2687,9 +2953,11 @@ void runFile(Evaluator& evaluator, const std::string& path, const Location& loca
 	if (failed()) {
 		return;
 	}
-	evaluator.files.push_back(path);
-	evaluator.trees.push_back(parseSource(text, &evaluator.files.back()));
-	runBlock(evaluator, evaluator.trees.back(), rootContext());
+	ParsedFiles& parsed = *evaluator.parsed;
+	parsed.key          = textKey(textKey(parsed.key, path), text);
+	parsed.files.push_back(path);
+	parsed.trees.push_back(parseSource(text, &parsed.files.back()));
+	runBlock(evaluator, parsed.trees.back(), rootContext());
 }
 
 Context rootContext() {
@@ -2831,6 +3099,8 @@ SceneFile emptySceneFile() {
 		.nodes          = {},
 		.objects        = {},
 		.objectPrograms = {},
+		.tiles          = {},
+		.tileLeaves     = nullptr,
 	};
 
 	const Looks looks = {
@@ -2878,11 +3148,20 @@ bool hasSun(const Lighting& lighting) {
 }
 
 std::string sceneError(const SceneFile& file, const std::string& path) {
-	if (file.scene.objects.empty()) {
+	if (file.scene.objects.empty() && file.scene.tiles.empty()) {
 		return path + ": the scene has no shapes";
 	}
 	if (file.lighting.sky.kind == SkyKind::Physical && !hasSun(file.lighting)) {
 		return path + ": a physical sky is lit by a sun light";
+	}
+	return {};
+}
+
+std::string longObjectError(const Scene& scene, const std::string& path) {
+	for (const Program& program : scene.objectPrograms) {
+		if (program.steps.size() > mostProgramSteps) {
+			return path + ": " + program.name + " has more than 65535 steps";
+		}
 	}
 	return {};
 }
@@ -2905,21 +3184,29 @@ LoadedScene loadScene(const std::string& path, double time) {
 	SceneFile file = emptySceneFile();
 	Scene& scene   = file.scene;
 
+	const ParsedFiles parsed = {
+		.files = {},
+		.trees = {},
+		.key   = 0,
+	};
+
 	Evaluator evaluator = {
 		.scene           = scene,
 		.looks           = file.looks,
 		.lighting        = file.lighting,
 		.shot            = file.shot,
-		.files           = {},
-		.trees           = {},
+		.parsed          = std::make_shared<ParsedFiles>(parsed),
 		.imported        = {},
 		.definitions     = {},
 		.scopes          = { timedScope(time) },
+		.shared          = nullptr,
 		.base            = 1,
 		.compiler        = nullptr,
 		.specialised     = {},
 		.defaultMaterial = -1,
 		.timed           = false,
+		.tiled           = false,
+		.reads           = {},
 	};
 
 	const Location start = {
@@ -2936,12 +3223,84 @@ LoadedScene loadScene(const std::string& path, double time) {
 	if (!error.empty()) {
 		return failedLoad(error);
 	}
-	scene.objects        = unionParts(scene);
-	scene.objectPrograms = objectPrograms(scene);
-	file.timed           = evaluator.timed;
+	scene.objects             = unionParts(scene);
+	scene.objectPrograms      = objectPrograms(scene);
+	const std::string tooLong = longObjectError(scene, path);
+	if (!tooLong.empty()) {
+		return failedLoad(tooLong);
+	}
+	for (TileBlock& block : scene.tiles) {
+		block.source = evaluator.parsed->key;
+	}
+	file.timed = evaluator.timed || !scene.tiles.empty();
 
 	return LoadedScene {
 		.file  = std::move(file),
+		.error = {},
+	};
+}
+
+Scope tileScope(const TilePlace& place) {
+	Scope scope;
+	scope["tile"] = listValue({ numberValue(double(place.index[0])), numberValue(double(place.index[1])), numberValue(double(place.index[2])) });
+	return scope;
+}
+
+Context tileContext(const TileBlock& block, const TilePlace& place) {
+	const std::vector<double> offset = { block.step[0] * double(place.index[0]), block.step[1] * double(place.index[1]), block.step[2] * double(place.index[2]) };
+	return composed(rootContext(), translation(offset));
+}
+
+TileContent failedTile(const std::string& error) {
+	return TileContent {
+		.scene = emptySceneFile().scene,
+		.reads = {},
+		.error = error,
+	};
+}
+
+const Location& tileBlockLocation(const TileBlock& block) {
+	return block.snapshot->block->location;
+}
+
+TileContent evaluatedTile(const Scene& scene, const TilePlace& place) {
+	takenFailure();
+	const TileBlock& block       = scene.tiles[place.block];
+	const TileSnapshot& snapshot = *block.snapshot;
+	SceneFile file               = emptySceneFile();
+
+	Evaluator evaluator = {
+		.scene           = file.scene,
+		.looks           = file.looks,
+		.lighting        = file.lighting,
+		.shot            = file.shot,
+		.parsed          = nullptr,
+		.imported        = {},
+		.definitions     = snapshot.definitions,
+		.scopes          = { Scope {}, tileScope(place) },
+		.shared          = &snapshot.scope,
+		.base            = 1,
+		.compiler        = nullptr,
+		.specialised     = {},
+		.defaultMaterial = snapshot.defaultMaterial,
+		.timed           = false,
+		.tiled           = true,
+		.reads           = {},
+	};
+
+	runBlock(evaluator, snapshot.block->body, tileContext(block, place));
+	if (failed()) {
+		return failedTile(takenFailure());
+	}
+	file.scene.objects        = unionParts(file.scene);
+	file.scene.objectPrograms = objectPrograms(file.scene);
+	const std::string tooLong = longObjectError(file.scene, *snapshot.block->location.file);
+	if (!tooLong.empty()) {
+		return failedTile(tooLong);
+	}
+	return TileContent {
+		.scene = std::move(file.scene),
+		.reads = std::move(evaluator.reads),
 		.error = {},
 	};
 }

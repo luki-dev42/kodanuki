@@ -1,6 +1,6 @@
 #include "plugins/sampler/toward_mirrors/toward_mirrors.h"
 
-#include "plugins/geometry/tree/cut.h"
+#include "plugins/geometry/tree/reach.h"
 
 #include <algorithm>
 #include <cmath>
@@ -11,15 +11,14 @@ namespace kodanuki {
 
 constexpr double leastOfRange = 1e-4;
 constexpr int finestLevels    = 12;
+constexpr int reachLevels     = 6;
 
 struct Relaying {
 	const Geometry& geometry;
 	std::vector<Program> programs;
 	std::vector<std::vector<std::uint32_t>> objects;
-	std::vector<std::vector<std::uint32_t>> cuts;
 	std::vector<double> blends;
 	double least;
-	double widest;
 	double finest;
 };
 
@@ -88,14 +87,6 @@ std::vector<std::vector<std::uint32_t>> namedByPrograms(const std::vector<Progra
 	return named;
 }
 
-std::vector<std::vector<std::uint32_t>> namedByCuts(const Geometry& geometry, const std::vector<bool>& relays) {
-	std::vector<std::vector<std::uint32_t>> named;
-	for (std::uint32_t cut = 0; cut < treeOf(geometry).cuts.size(); ++cut) {
-		named.push_back(namedRelays(keptStepsOf(geometry.scene, treeOf(geometry), cut), relays));
-	}
-	return named;
-}
-
 void reachedBlends(const Scene& scene, std::uint32_t node, double reach, std::vector<double>& blends) {
 	const Node& at = scene.nodes[node];
 	if (at.join == Join::Leaf) {
@@ -115,20 +106,12 @@ std::vector<double> leafBlends(const Scene& scene) {
 	return blends;
 }
 
-double widestStray(const Tree& tree) {
-	double widest = 0;
-	for (const SurfaceLeaf& leaf : tree.surfaces) {
-		widest = std::max(widest, loosenedOf(leaf));
-	}
-	return widest;
-}
-
 double regionSide(const Region& region) {
 	return std::max({ region.size[0], region.size[1], region.size[2] });
 }
 
-double leastTolerance(const Region& region) {
-	return leastOfRange * regionSide(region);
+double leastTolerance(const Tree& tree) {
+	return leastOfRange * std::ldexp(regionSide(tree.region), -grownLevels(tree));
 }
 
 Program noProgram() {
@@ -153,11 +136,9 @@ Relaying relayingOf(const Geometry& geometry, const std::vector<bool>& relays) {
 		.geometry = geometry,
 		.programs = relayPrograms(geometry.scene, relays),
 		.objects  = namedByPrograms(geometry.scene.objectPrograms, relays),
-		.cuts     = namedByCuts(geometry, relays),
 		.blends   = leafBlends(geometry.scene),
-		.least    = leastTolerance(treeOf(geometry).region),
-		.widest   = widestStray(treeOf(geometry)),
-		.finest   = std::ldexp(regionSide(treeOf(geometry).region), -finestLevels),
+		.least    = leastTolerance(treeOf(geometry)),
+		.finest   = std::ldexp(regionSide(treeOf(geometry).region), -finestLevels - grownLevels(treeOf(geometry))),
 	};
 }
 
@@ -211,32 +192,18 @@ void growNear(const Relaying& relaying, const RelayCell& cell, const Box& box, G
 	}
 }
 
-std::uint32_t leafList(const Tree& tree, const CellEntry& entry) {
-	return entry.kind == CellKind::Surface ? tree.surfaces[entry.payload].programs : tree.solids[entry.payload].programs;
-}
-
-RelayCell relayCellOf(const Relaying& relaying, const CellEntry& entry, std::uint32_t leaf) {
-	if (entry.kind != CellKind::Surface) {
-		return RelayCell {
-			.leaf  = leaf,
-			.stray = relaying.widest,
-		};
+void growObject(const Relaying& relaying, std::uint32_t object, Grown& grown) {
+	if (relaying.objects[object].empty()) {
+		return;
 	}
-	return RelayCell {
-		.leaf  = leaf,
-		.stray = loosenedOf(treeOf(relaying.geometry).surfaces[entry.payload]),
-	};
-}
+	for (const Box& box : fieldBoxes(relaying.geometry.scene.objectPrograms[object], treeOf(relaying.geometry).region, reachLevels + grownLevels(treeOf(relaying.geometry)))) {
+		for (const std::uint32_t leaf : relaying.objects[object]) {
+			const RelayCell cell = {
+				.leaf  = leaf,
+				.stray = looseStray(treeOf(relaying.geometry), box),
+			};
 
-void growPlaced(const Relaying& relaying, const PlacedLeaf& placed, Grown& grown) {
-	const Tree& tree            = treeOf(relaying.geometry);
-	const ProgramList& programs = tree.lists[leafList(tree, placed.entry)];
-	const Box box               = placedBox(tree.region, placed);
-	for (std::uint32_t k = 0; k < programs.count; ++k) {
-		const ProgramReference& reference       = tree.references[programs.first + k];
-		const std::vector<std::uint32_t>& named = reference.source == ProgramSource::Object ? relaying.objects[reference.index] : relaying.cuts[reference.index];
-		for (const std::uint32_t leaf : named) {
-			growNear(relaying, relayCellOf(relaying, placed.entry, leaf), box, grown);
+			growNear(relaying, cell, box, grown);
 		}
 	}
 }
@@ -286,8 +253,8 @@ MirrorBalls relayingBalls(const Geometry& geometry, const Looks& looks, const Ma
 		.grown = std::vector<bool>(relays.size(), false),
 	};
 
-	for (const PlacedLeaf& placed : placedLeaves(treeOf(geometry))) {
-		growPlaced(relaying, placed, grown);
+	for (std::uint32_t object = 0; object < relaying.objects.size(); ++object) {
+		growObject(relaying, object, grown);
 	}
 	return ballsOf(grown);
 }

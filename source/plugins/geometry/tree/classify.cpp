@@ -7,6 +7,7 @@
 #include <array>
 #include <bit>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -14,9 +15,11 @@
 
 namespace kodanuki {
 
-constexpr double foldWindow = 1e-3;
-constexpr double foldMargin = 1e-4;
-constexpr int foldPieces    = 4;
+constexpr double foldWindow        = 1e-3;
+constexpr double foldMargin        = 1e-4;
+constexpr int foldPieces           = 4;
+constexpr double skipWidth         = 16;
+constexpr std::size_t skipPrograms = 8;
 
 struct FaceQuery {
 	Box box;
@@ -244,6 +247,8 @@ std::optional<Plan> facedPlan(const CellQuery& query, const CellPrograms& progra
 	const RunQuery written = {
 		.faces     = faces,
 		.programs  = programs.programs,
+		.objects   = programs.objects,
+		.slots     = query.slots,
 		.box       = query.box,
 		.tolerance = query.tolerance,
 	};
@@ -456,6 +461,11 @@ CellKind cutKind(Occupancy occupancy) {
 	return CellKind::Empty;
 }
 
+bool patchSkipped(const CellQuery& query, const CellPrograms& programs) {
+	const double width = query.box.axes[0].upper - query.box.axes[0].lower;
+	return query.deeper && (width / query.tolerance >= skipWidth || programs.programs.size() > skipPrograms);
+}
+
 Plan classifyCell(const CellQuery& query) {
 	const CellCut cut = cutCell(query.programs, query.box);
 	if (cut.occupancy != Occupancy::Surface) {
@@ -465,6 +475,9 @@ Plan classifyCell(const CellQuery& query) {
 		const std::optional<Plan> faced = facedPlan(query, cut.programs);
 		if (faced) {
 			return *faced;
+		}
+		if (patchSkipped(query, cut.programs)) {
+			return blankPlan(CellKind::Branch, cut.programs);
 		}
 	}
 	return patchedPlan(query, cut.programs);
@@ -613,6 +626,71 @@ std::vector<std::uint32_t> foldedRun(const std::vector<std::uint32_t>& run) {
 		words.insert(words.end(), run.begin() + offsets[std::size_t(face)], run.begin() + offsets[std::size_t(face) + 1]);
 	}
 	return words;
+}
+
+math::Interval univariateRange(double a, double b, const math::Interval& u) {
+	const double low    = a * u.lower * u.lower + b * u.lower;
+	const double high   = a * u.upper * u.upper + b * u.upper;
+	const double vertex = a != 0 ? -b / (2 * a) : u.lower;
+	const double turn   = vertex > u.lower && vertex < u.upper ? a * vertex * vertex + b * vertex : low;
+	return math::Interval {
+		.lower = std::min({ low, high, turn }),
+		.upper = std::max({ low, high, turn }),
+	};
+}
+
+math::Interval separableRange(const float* f, const math::Interval* u) {
+	math::Interval range = scaledPiece(f[9], math::Interval { .lower = 1, .upper = 1 });
+	for (int axis = 0; axis < 3; ++axis) {
+		range = range + univariateRange(f[axis], f[6 + axis], u[axis]);
+	}
+	return range + scaledPiece(f[3], u[0] * u[1]) + scaledPiece(f[4], u[0] * u[2]) + scaledPiece(f[5], u[1] * u[2]);
+}
+
+int separableSide(const float* f) {
+	double margin = 0;
+	for (int k = 0; k < 10; ++k) {
+		margin += foldMargin * std::abs(double(f[k]));
+	}
+	int side = 2;
+	for (int piece = 0; piece < foldPieces * foldPieces * foldPieces; ++piece) {
+		const math::Interval u[3] = { windowPiece(piece % foldPieces), windowPiece(piece / foldPieces % foldPieces), windowPiece(piece / (foldPieces * foldPieces)) };
+		const int here            = rangeSide(separableRange(f, u), margin);
+		if (here == 0 || (side != 2 && here != side)) {
+			return 0;
+		}
+		side = here;
+	}
+	return side;
+}
+
+int runFaceSide(const std::vector<std::uint32_t>& run, std::uint32_t face) {
+	const FaceKind kind = faceKind(runHeader(run[0]), face);
+	if (kind != FaceKind::Quadric && kind != FaceKind::Plane) {
+		return 0;
+	}
+	const bool plane        = kind == FaceKind::Plane;
+	const float* written    = reinterpret_cast<const float*>(run.data() + faceOffsets(run.data())[face]);
+	std::array<float, 10> f = {};
+	std::copy(written, written + (plane ? 4 : 10), f.begin() + (plane ? 6 : 0));
+	return separableSide(f.data());
+}
+
+int surfacelessSide(const std::vector<std::uint32_t>& run) {
+	const std::uint32_t count = run.empty() ? 0 : runHeader(run[0]).count;
+	if (count == 0) {
+		return 0;
+	}
+	std::uint32_t inside = 0;
+	for (std::uint32_t face = 0; face < count; ++face) {
+		const int side = runFaceSide(run, face);
+		if (side == 0) {
+			return 0;
+		}
+		inside |= side < 0 ? 1u << face : 0u;
+	}
+	const bool filled = count == 1 ? inside == 1 : ((run[1 + inside / 32] >> (inside % 32)) & 1u) != 0;
+	return filled ? 2 : 1;
 }
 
 double fittedRunValue(const std::uint32_t* run, const double* u) {

@@ -1,11 +1,13 @@
 #include "core/frame.h"
 #include "plugins/geometry/tree/build.h"
 #include "plugins/geometry/tree/detail.h"
+#include "plugins/geometry/tree/lazy.h"
 #include "plugins/geometry/tree/pass.h"
 #include "plugins/geometry/tree/tree.h"
 #include "plugins/geometry/tree/walk.h"
 #include "plugins/transport/paths/paths.h"
 #include "sdf/scene.h"
+#include "shared/parallel.h"
 #include "syntax/evaluator.h"
 
 #include <algorithm>
@@ -20,6 +22,7 @@
 #include <random>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 using namespace kodanuki;
@@ -47,22 +50,18 @@ std::vector<float> normalsRow(const NormalsRow& row) {
 }
 
 Image normalsImage(const Geometry& geometry, const Lens& lens, int threads) {
-	Image image           = blankImage(lens.width, lens.height);
-	std::atomic<int> next = 0;
-	const auto work       = [&]() {
-		for (int y = next++; y < lens.height; y = next++) {
-			const NormalsRow row = {
-				.geometry = geometry,
-				.lens     = lens,
-				.y        = y,
-			};
+	Image image = blankImage(lens.width, lens.height);
+	inParallel(threads, std::size_t(lens.height), [&](std::size_t y) {
+		const NormalsRow row = {
+			.geometry = geometry,
+			.lens     = lens,
+			.y        = int(y),
+		};
 
-			const std::vector<float> values = normalsRow(row);
-			std::copy(values.begin(), values.end(), image.rgb.begin() + std::ptrdiff_t(values.size()) * y);
-		}
-	};
+		const std::vector<float> values = normalsRow(row);
+		std::copy(values.begin(), values.end(), image.rgb.begin() + std::ptrdiff_t(values.size() * y));
+	});
 
-	inThreads(threads, work);
 	return image;
 }
 
@@ -234,20 +233,25 @@ std::uint64_t mixedBytes(std::uint64_t hash, const void* data, std::size_t size)
 	return hash;
 }
 
+std::uint64_t leafFingerprint(const Tree& tree, const PlacedLeaf& leaf) {
+	const std::uint32_t place[5] = { std::uint32_t(leaf.level), leaf.place[0], leaf.place[1], leaf.place[2], std::uint32_t(leaf.entry.kind) };
+	const std::uint64_t hash     = mixedBytes(0xCBF29CE484222325ull, place, sizeof(place));
+	if (leaf.entry.kind != CellKind::Surface) {
+		return hash;
+	}
+	const SurfaceLeaf& surface  = tree.surfaces[leaf.entry.payload];
+	const std::uint32_t held[2] = { surface.loosened, std::uint32_t(surface.kind) };
+	const std::uint32_t* run    = tree.runs.data() + surface.run;
+	return mixedBytes(mixedBytes(hash, held, sizeof(held)), run, faceOffsets(run).back() * sizeof(std::uint32_t));
+}
+
 std::uint64_t treeFingerprint(const Tree& tree) {
-	std::uint64_t hash = 0xCBF29CE484222325ull;
-	for (const PackedNode& node : tree.nodes) {
-		const std::uint64_t words[4] = { node.lowerKinds, node.upperKinds, std::uint64_t(node.firstBranch) | std::uint64_t(node.firstSurface) << 32, std::uint64_t(node.firstSolid) | std::uint64_t(node.coarse) << 32 | std::uint64_t(node.busy) << 40 };
-		hash                         = mixedBytes(hash, words, sizeof(words));
+	std::vector<std::uint64_t> leaves;
+	for (const PlacedLeaf& leaf : placedLeaves(tree)) {
+		leaves.push_back(leafFingerprint(tree, leaf));
 	}
-	for (const SurfaceLeaf& leaf : tree.surfaces) {
-		const std::uint64_t words[2] = { std::uint64_t(leaf.run) | std::uint64_t(leaf.programs) << 32, std::uint64_t(leaf.loosened) | std::uint64_t(leaf.kind) << 16 };
-		hash                         = mixedBytes(hash, words, sizeof(words));
-	}
-	for (const SolidLeaf& leaf : tree.solids) {
-		hash = mixedBytes(hash, &leaf.programs, sizeof(leaf.programs));
-	}
-	return mixedBytes(hash, tree.runs.data(), tree.runs.size() * sizeof(std::uint32_t));
+	std::sort(leaves.begin(), leaves.end());
+	return mixedBytes(0xCBF29CE484222325ull, leaves.data(), leaves.size() * sizeof(std::uint64_t));
 }
 
 std::size_t keptCount(const Tree& tree, const ProgramCut& cut) {
@@ -283,11 +287,55 @@ void printPrograms(const Scene& scene, const Tree& tree) {
 	std::printf("cuts %zu (%zu kept steps in %zu runs, %zu rerouted, %.3f MB); a surface leaf's programs hold %.1f steps on average\n", tree.cuts.size(), steps, ranges, rerouted, megabytes, meanLeafSteps(scene, tree));
 }
 
+void printDedup(const Tree& tree) {
+	std::unordered_map<std::uint64_t, int> runs;
+	std::size_t runWords = 0, uniqueRunWords = 0;
+	std::unordered_map<std::uint32_t, int> seenRun;
+	for (const SurfaceLeaf& leaf : tree.surfaces) {
+		if (seenRun[leaf.run]++) {
+			continue;
+		}
+		const std::uint32_t* run = tree.runs.data() + leaf.run;
+		const std::size_t words  = faceOffsets(run).back();
+		runWords += words;
+		if (runs[mixedBytes(0xCBF29CE484222325ull, run, words * 4)]++ == 0) {
+			uniqueRunWords += words;
+		}
+	}
+	std::unordered_map<std::uint64_t, int> cuts;
+	std::vector<std::uint64_t> cutHash;
+	std::size_t uniqueCutBytes = 0;
+	for (const ProgramCut& cut : tree.cuts) {
+		const std::uint32_t head[4] = { cut.object, cut.ranges, cut.rerouted, cut.result };
+		const std::size_t entries   = 2 * (std::size_t(cut.ranges) + cut.rerouted);
+		const std::uint64_t hash    = mixedBytes(mixedBytes(0xCBF29CE484222325ull, head, 16), tree.cutSteps.data() + cut.first, entries * 2);
+		cutHash.push_back(hash);
+		if (cuts[hash]++ == 0) {
+			uniqueCutBytes += 16 + entries * 2;
+		}
+	}
+	std::unordered_map<std::uint64_t, int> lists;
+	std::size_t uniqueListBytes = 0;
+	for (const ProgramList& list : tree.lists) {
+		std::uint64_t hash = 0xCBF29CE484222325ull;
+		for (std::uint32_t k = 0; k < list.count; ++k) {
+			const ProgramReference& r = tree.references[list.first + k];
+			const std::uint64_t one   = r.source == ProgramSource::Cut ? cutHash[r.index] : r.index;
+			hash                      = mixedBytes(hash, &one, 8);
+		}
+		if (lists[hash]++ == 0) {
+			uniqueListBytes += 8 + 8 * list.count;
+		}
+	}
+	std::printf("dedup: runs %zu distinct offsets, %.3f MB named, %zu unique %.3f MB; cuts %zu unique of %zu, %.3f MB; lists %zu unique of %zu, %.3f MB\n", seenRun.size(), double(runWords) * 4 / 1048576, runs.size(), double(uniqueRunWords) * 4 / 1048576, cuts.size(), tree.cuts.size(), double(uniqueCutBytes) / 1048576, lists.size(), tree.lists.size(), double(uniqueListBytes) / 1048576);
+}
+
 void printStats(const Tree& tree, double seconds) {
 	const TreeStats s = treeStats(tree);
 	std::printf("build %.3f s; octree cells %zu: branch %zu, empty %zu, filled %zu, surface %zu (one patch %zu, floor %zu)\n", seconds, s.cells, s.branches, s.empty, s.solids, s.surfaces, s.patched, s.floors);
 	std::printf("packed nodes %zu; faces: plane %zu, quadric %zu, patch %zu, ring %zu; surface leaves by faces 1..8: %zu %zu %zu %zu %zu %zu %zu %zu\n", s.nodes, s.faces[0], s.faces[1], s.faces[2], s.faces[3], s.byCount[1], s.byCount[2], s.byCount[3], s.byCount[4], s.byCount[5], s.byCount[6], s.byCount[7], s.byCount[8]);
 	std::printf("tree %.3f MB: nodes %.3f, surface leaves %.3f, solid leaves %.3f, runs %.3f, lists %zu (%zu references)\n", s.megabytes, megabytesOf(tree.nodes.size(), sizeof(PackedNode)), megabytesOf(tree.surfaces.size(), sizeof(SurfaceLeaf)), megabytesOf(tree.solids.size(), sizeof(SolidLeaf)), megabytesOf(tree.runs.size(), 4), tree.lists.size(), tree.references.size());
+	printDedup(tree);
 	std::printf("fingerprint %016llx\n", static_cast<unsigned long long>(treeFingerprint(tree)));
 }
 
@@ -439,7 +487,8 @@ int main(int argc, char** argv) {
 	}
 	std::printf("%zu objects, %zu leaves, %zu steps in the object programs (%.1f MB)\n", scene.objectPrograms.size(), scene.leaves.size(), steps, double(steps * sizeof(Step)) / 1048576.0);
 	const Clock::time_point at = Clock::now();
-	const Region region        = options.framed ? options.region : sceneRegion(scene, file.shot, options.threads);
+	const ObjectBoxes boxes    = objectBoxes(scene, options.threads);
+	const Region region        = options.framed ? options.region : boxedRegion(boxes.boxes, file.shot);
 	const double searched      = secondsSince(at);
 
 	const SceneDetailQuery query = {
@@ -452,20 +501,24 @@ int main(int argc, char** argv) {
 	Detail detail   = sceneDetail(query);
 	detail.least    = options.least > 0 ? options.least : detail.least;
 	const int depth = options.depth >= 0 ? options.depth : depthCapOf(region, detail.least);
-	std::printf("%s at %dx%d: region lower %.4f %.4f %.4f size %.4f %.4f %.4f (%s, %.3f s), least %g, depth cap %d, share %.4f, faces %s, %zu detail members, %d threads\n", argv[1], file.shot.render.width, file.shot.render.height, region.lower[0], region.lower[1], region.lower[2], region.size[0], region.size[1], region.size[2], options.framed ? "given" : "searched", searched, detail.least, depth, detail.share, options.faces ? "on" : "off", detail.members.size(), options.threads);
+	std::printf("%s at %dx%d: region lower %.4f %.4f %.4f size %.4f %.4f %.4f (%s, %.3f s), least %g, depth cap %d, share %.4f, faces %s, %zu detail members, %d threads\n", argv[1], file.shot.render.width, file.shot.render.height, region.lower[0], region.lower[1], region.lower[2], region.size[0], region.size[1], region.size[2], options.framed ? "given" : "from the object boxes", searched, detail.least, depth, detail.share, options.faces ? "on" : "off", detail.members.size(), options.threads);
 
-	const BuildInput input = {
-		.scene    = scene,
-		.detail   = detail,
-		.passes   = options.passes,
-		.region   = region,
-		.depthCap = depth,
-		.workers  = options.threads,
-		.faces    = options.faces,
+	const LazyInput input = {
+		.scene     = scene,
+		.detail    = detail,
+		.passes    = options.passes,
+		.boxes     = boxes,
+		.region    = region,
+		.depthCap  = depth,
+		.workers   = options.threads,
+		.faces     = options.faces,
+		.memory    = std::size_t(1) << 40,
+		.forgiving = false,
 	};
 
 	const Clock::time_point start = Clock::now();
-	const Tree tree               = buildTree(input);
+	Tree tree                     = lazyTree(input);
+	openEveryCell(tree, options.threads);
 	printStats(tree, secondsSince(start));
 	printPrograms(scene, tree);
 	std::printf("peak resident %.1f MB\n", peakMegabytes());

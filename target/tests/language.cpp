@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -304,6 +305,9 @@ void checkLoadErrors() {
 	const std::string empty = writeScene("empty", "let a = 1;\n");
 	check(loadScene(empty, 0).error == empty + ": the scene has no shapes", "a scene without shapes is an error");
 
+	const std::string endless = writeScene("endless", "function ball(r) {\n\tlet d = length(p) - r;\n\tfor i in 0..40000 {\n\t\tlet d = abs(d) - r;\n\t}\n\treturn d;\n}\n\nball(1);\n");
+	check(loadScene(endless, 0).error == endless + ":9:1: ball has more than 65535 steps", "a function of more than 65535 steps is an error");
+
 	const std::string fine = writeScene("fine", "function ball(r) {\n\treturn length(p) - r;\n}\n\nball(1);\n");
 	check(loadScene(fine, 0).error.empty(), "a load after a failed one starts clean");
 }
@@ -360,6 +364,84 @@ void checkCompared() {
 	check(!sameShapes(start.scene, moved.scene) && sameShapes(moved.scene, sceneAtOrExit(path, 6).scene), "a shape that moves changes the shapes, and the same evaluation twice compares equal");
 }
 
+std::string tileError(const char* name, const std::string& body) {
+	const std::string text = ballText("let grey = matte([0.5, 0.5, 0.5]);\n" + body);
+	return loadScene(writeScene(name, text.c_str()), 0).error;
+}
+
+std::string tiledError(const char* name, const std::string& body) {
+	const std::string text = ballText("tiles(step = 4) {\n" + body + "}\n");
+	const std::string path = writeScene(name, text.c_str());
+	return loadScene(path, 0).error.substr(path.size());
+}
+
+void checkTileErrors() {
+	check(tiledError("tiled_setting", "\trender {\n\t\twidth = 10;\n\t}\n") == ":6:2: tiles may not hold settings", "tiles may not hold settings");
+	check(tiledError("tiled_import", "\timport \"other.sdf\";\n") == ":6:2: tiles may not import", "tiles may not import");
+	check(tiledError("tiled_function", "\tfunction f() {\n\t\treturn 1;\n\t}\n") == ":6:2: tiles may not define a function or a shape", "tiles may not define a function");
+	check(tiledError("tiled_shape", "\tshape s() {\n\t\tball(1);\n\t}\n") == ":6:2: tiles may not define a function or a shape", "tiles may not define a shape");
+	check(tiledError("tiled_material", "\tpaint(matte([1, 0, 0])) ball(1);\n") == ":6:8: tiles may not make a material", "tiles may not make a material");
+	check(tiledError("tiled_coat", "\tcoat(shade(0.5), above(1)) ball(1);\n") == ":6:2: tiles may not make a coat", "tiles may not make a coat");
+	check(tiledError("tiled_group", "\tgroup(stage) ball(1);\n") == ":6:2: tiles may not put shapes in a group", "tiles may not put shapes in a group");
+	check(tiledError("tiled_rule", "\trule(camera = 0) ball(1);\n") == ":6:2: tiles may not say rules", "tiles may not say rules");
+	check(tiledError("tiled_tiles", "\ttiles(step = 1) {\n\t\tball(1);\n\t}\n") == ":6:2: tiles may not hold tiles", "tiles may not hold tiles");
+	check(tileError("looped_tiles", "for i in 0..1 {\n\ttiles(step = 1) {\n\t\tball(1);\n\t}\n}\n").ends_with(":7:2: tiles stand at the top level of a file"), "tiles inside a loop are refused");
+	check(tileError("shaped_tiles", "shape s() {\n\ttiles(step = 1) {\n\t\tball(1);\n\t}\n}\n\ns();\n").ends_with(":7:2: tiles stand at the top level of a file"), "tiles inside a shape are refused");
+	check(tileError("stepless_tiles", "tiles(size = 1) {\n\tball(1);\n}\n").ends_with(":6:1: tiles take a step"), "tiles take a step");
+	check(tileError("flat_tiles", "tiles(step = [1, 0, 1]) {\n\tball(1);\n}\n").ends_with(":6:1: a tile's step is above 0 along x, y and z"), "a tile's step is above 0");
+}
+
+std::string boundsError(const char* name, const std::string& bounds) {
+	return tileError(name, "tiles(step = 4" + bounds + ") {\n\tball(1);\n}\n");
+}
+
+void checkTileBounds() {
+	check(boundsError("from_alone", ", from = [0, 0, 0]").ends_with(":6:1: tiles take from and to together"), "tiles take from only with to");
+	check(boundsError("to_alone", ", to = [0, 0, 0]").ends_with(":6:1: tiles take from and to together"), "tiles take to only with from");
+	check(boundsError("spread_bounds", ", from = 0, to = [1, 1, 1]").ends_with(":6:1: a tile's from and to are 3 whole numbers each"), "a tile bound is a vector, not one number");
+	check(boundsError("short_bounds", ", from = [0, 0], to = [1, 1]").ends_with(":6:1: a tile's from and to are 3 whole numbers each"), "a tile bound has 3 numbers");
+	check(boundsError("broken_bounds", ", from = [0, 0.5, 0], to = [1, 1, 1]").ends_with(":6:1: a tile's from and to are 3 whole numbers each"), "a tile bound is whole");
+	check(boundsError("turned_bounds", ", from = [0, 2, 0], to = [1, 1, 1]").ends_with(":6:1: a tile's from is at most its to along x, y and z"), "a tile's from is at most its to");
+	check(boundsError("other_bounds", ", size = [1, 1, 1]").ends_with(":6:1: tiles take a step"), "tiles take no other name");
+	const std::string path   = writeScene("bounded_tiles", ballText("tiles(step = [4, 8, 16], from = [-2, 0, 0], to = [3, 1, 0]) {\n\tball(1);\n}\n").c_str());
+	const LoadedScene loaded = loadScene(path, 0);
+	const TileBlock& block   = loaded.file.scene.tiles.at(0);
+	check(loaded.error.empty() && block.from[0] == -2 && block.from[1] == 0 && block.to[0] == 3 && block.to[1] == 1 && block.to[2] == 0, "a tiles block keeps its from and to");
+	const SceneFile unbounded = sceneOrExit(writeScene("unbounded_tiles", ballText("tiles(step = 4) {\n\tball(1);\n}\n").c_str()));
+	check(unbounded.scene.tiles.at(0).from[2] == lowestTile && unbounded.scene.tiles.at(0).to[2] == highestTile, "a block without bounds runs every index");
+}
+
+TilePlace tilePlace(std::int64_t i, std::int64_t j, std::int64_t k) {
+	return TilePlace {
+		.block = 0,
+		.index = { i, j, k },
+	};
+}
+
+void checkTiles() {
+	const std::string text   = ballText("let n = 1;\n\nshape counted() {\n\tlet n = n + 10;\n}\n\ntiles(step = [4, 8, 16]) {\n\tif tile.z == 0 {\n\t\tlet n = n + tile.x;\n\t\tcounted();\n\t\tat([n, 1, 2]) ball(0.5);\n\t}\n}\n\nlet after = 3;\n");
+	const std::string path   = writeScene("tiles", text.c_str());
+	const LoadedScene loaded = loadScene(path, 0);
+	const Scene& scene       = loaded.file.scene;
+	check(loaded.error.empty() && scene.objects.empty() && scene.tiles.size() == 1 && scene.tiles[0].step[1] == 8 && loaded.file.timed, "a scene of tiles alone loads, holds its block and is evaluated again at each time");
+	const TileContent second = evaluatedTile(scene, tilePlace(2, 1, 0));
+	const TileContent first  = evaluatedTile(scene, tilePlace(1, 1, 0));
+	const double* moved      = second.scene.leaves[0].placement.origin;
+	check(second.error.empty() && second.scene.objectPrograms.size() == 1 && moved[0] == 8 + 13 && moved[1] == 9 && moved[2] == 2, "a tile's shapes are moved by its index times the step, from the bindings where the block stands");
+	check(first.scene.leaves[0].placement.origin[0] == 4 + 12 && evaluatedTile(scene, tilePlace(2, 1, 0)).scene.leaves[0].placement.origin[0] == moved[0], "a tile's changes to the bindings are its own");
+	check(evaluatedTile(scene, tilePlace(0, 0, 1)).scene.objects.empty() && first.reads.contains("n") && !first.reads.contains("tile"), "a tile may make nothing, and notes the top-level names it read");
+	const std::string late = writeScene("late_tiles", ballText("tiles(step = 1) {\n\tat([after, 0, 0]) ball(1);\n}\n\nlet after = 1;\n").c_str());
+	check(evaluatedTile(loadScene(late, 0).file.scene, tilePlace(0, 0, 0)).error == late + ":6:2: unknown name 'after'", "a tile sees no binding made after its block");
+	const std::string shaped = writeScene("shaped_material", ballText("shape red() {\n\tpaint(matte([1, 0, 0])) ball(1);\n}\n\ntiles(step = 1) {\n\tred();\n}\n").c_str());
+	check(evaluatedTile(loadScene(shaped, 0).file.scene, tilePlace(0, 0, 0)).error == shaped + ":6:8: tiles may not make a material", "a shape a tile calls may not make a material");
+	const SceneFile later = sceneAtOrExit(path, 1);
+	check(sameShapes(scene, later.scene), "tiles that read nothing of the time make the same shapes at another time");
+	scene.tiles[0].reads->names.insert("time");
+	check(!sameShapes(scene, later.scene), "tiles that read the time make other shapes at another time");
+	checkTileErrors();
+	checkTileBounds();
+}
+
 void checkLanguage() {
 	checkCompiledFn();
 	checkPlacement();
@@ -374,6 +456,7 @@ void checkLanguage() {
 	checkClip();
 	checkStops();
 	checkCompared();
+	checkTiles();
 }
 
 }

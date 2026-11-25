@@ -21,6 +21,8 @@ constexpr std::uint32_t unknownOwner = 0xFu;
 
 constexpr int mostDescriptions = 3;
 
+constexpr std::uint32_t noPaint = 0xFFFFFFu;
+
 constexpr double exactShare = 1e-3;
 
 bool blends(const Program& program) {
@@ -233,17 +235,33 @@ std::uint32_t onePaint(const RunQuery& query) {
 	return leaf;
 }
 
-std::uint32_t describedWord(std::uint32_t exact, std::uint32_t leaf) {
-	return (exact & 0xFFu) | ((leaf == noLeaf ? 0xFFFFFFu : leaf) << 8);
+bool namesLeaf(const Program& program, std::uint32_t leaf) {
+	return std::any_of(program.steps.begin(), program.steps.end(), [&](const Step& step) {
+		return step.leaf == leaf;
+	});
+}
+
+std::uint32_t paintOf(const RunQuery& query, std::uint32_t leaf) {
+	for (std::uint32_t k = 0; k < query.programs.size() && leaf != noLeaf; ++k) {
+		if (!namesLeaf(*query.programs[k], leaf)) {
+			continue;
+		}
+		const std::uint32_t offset = leaf - slotLeastLeaf(query.slots, query.objects[k]);
+		return k < 0xFFu && offset < 0xFFFFu ? k << 16 | offset : noPaint;
+	}
+	return noPaint;
+}
+
+std::uint32_t describedWord(std::uint32_t exact, std::uint32_t paint) {
+	return (exact & 0xFFu) | paint << 8;
 }
 
 std::uint32_t describedExact(std::uint32_t word) {
 	return word & 0xFFu;
 }
 
-std::uint32_t describedLeaf(std::uint32_t word) {
-	const std::uint32_t leaf = word >> 8;
-	return leaf == 0xFFFFFFu ? noLeaf : leaf;
+std::uint32_t describedPaint(std::uint32_t word) {
+	return word >> 8;
 }
 
 std::uint32_t ownersWord(const std::vector<Face>& faces) {
@@ -266,16 +284,16 @@ std::vector<std::uint32_t> facedWords(const RunQuery& query) {
 	}
 	const std::vector<Face>& faces         = query.faces.faces;
 	const std::uint32_t painted            = onePaint(query);
-	std::uint32_t leaves[mostDescriptions] = { noLeaf, noLeaf, noLeaf };
+	std::uint32_t leaves[mostDescriptions] = { noPaint, noPaint, noPaint };
 	std::uint32_t exact[mostDescriptions]  = { 0, 0, 0 };
 	for (std::uint32_t j = 0; j < faces.size(); ++j) {
 		if (!exactFace(faces[j], query.tolerance) || duplicated(faces, j)) {
 			continue;
 		}
-		const std::uint32_t own = painted != noLeaf ? painted : sampledLeaf(query, faces[j]);
+		const std::uint32_t own = paintOf(query, painted != noLeaf ? painted : sampledLeaf(query, faces[j]));
 		int slot                = -1;
-		for (int k = mostDescriptions - 1; k >= 0 && own != noLeaf; --k) {
-			slot = leaves[k] == noLeaf || leaves[k] == own ? k : slot;
+		for (int k = mostDescriptions - 1; k >= 0 && own != noPaint; --k) {
+			slot = leaves[k] == noPaint || leaves[k] == own ? k : slot;
 		}
 		if (slot < 0) {
 			continue;
@@ -321,7 +339,7 @@ std::vector<std::uint32_t> foldedFacedWords(const std::uint32_t* words, std::uin
 	}
 	std::vector<std::uint32_t> folded = { keptOwners(words[0], kept) };
 	for (std::uint32_t k = 1; k < count; ++k) {
-		folded.push_back(describedWord(keptBits(describedExact(words[k]), kept), describedLeaf(words[k])));
+		folded.push_back(describedWord(keptBits(describedExact(words[k]), kept), describedPaint(words[k])));
 	}
 	return folded;
 }
@@ -331,9 +349,10 @@ FacedFace facedFace(const std::uint32_t* run, std::uint32_t face) {
 	const std::uint32_t* at = run + 1 + tableWordCount(header.count);
 
 	FacedFace known = {
-		.exact = false,
-		.leaf  = noLeaf,
-		.owner = unknownOwner,
+		.exact   = false,
+		.leaf    = noLeaf,
+		.painter = 0,
+		.owner   = unknownOwner,
 	};
 
 	if (header.passWords == 0 || face >= 8) {
@@ -342,8 +361,9 @@ FacedFace facedFace(const std::uint32_t* run, std::uint32_t face) {
 	known.owner = (at[0] >> (4 * face)) & unknownOwner;
 	for (std::uint32_t k = 1; k < header.passWords; ++k) {
 		if (((describedExact(at[k]) >> face) & 1u) != 0) {
-			known.exact = true;
-			known.leaf  = describedLeaf(at[k]);
+			known.exact   = true;
+			known.leaf    = describedPaint(at[k]) & 0xFFFFu;
+			known.painter = describedPaint(at[k]) >> 16;
 		}
 	}
 	return known;

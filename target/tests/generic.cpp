@@ -449,9 +449,10 @@ void scoredRay(GenericHits& score, const Geometry& tree, const Geometry& traced,
 }
 
 GenericHits hitScore(const SceneFile& file, const TestTree& tree) {
-	const Geometry built  = treeGeometry(file.scene, tree.tree);
-	const Geometry traced = sphereGeometry(file.scene, treeOf(built).region);
-	GenericHits score     = { .rays = 0, .hits = 0, .apart = 0 };
+	const Geometry built    = treeGeometry(file.scene, tree.tree);
+	const SphereWorld world = openWorld(file.scene);
+	const Geometry traced   = sphereGeometry(file.scene, treeOf(built).region, world);
+	GenericHits score       = { .rays = 0, .hits = 0, .apart = 0 };
 	for (const Ray& ray : genericRays(file)) {
 		scoredRay(score, built, traced, ray);
 	}
@@ -465,22 +466,28 @@ void checkHits(const std::string& what, const SceneFile& file, const TestTree& t
 }
 
 TestTree detailedTree(const SceneFile& file, const std::vector<DetailMember>& members) {
-	const Region region = sceneRegion(file.scene, file.shot, 4);
-	const Detail detail = testDetail(file, region, members);
+	const ObjectBoxes boxes = objectBoxes(file.scene, 4);
+	const Region region     = boxedRegion(boxes.boxes, file.shot);
+	const Detail detail     = testDetail(file, region, members);
 
-	const BuildInput input = {
-		.scene    = file.scene,
-		.detail   = detail,
-		.passes   = {},
-		.region   = region,
-		.depthCap = depthCapOf(region, detail.least),
-		.workers  = 4,
-		.faces    = true,
+	const std::vector<PassMember> none = {};
+
+	const LazyInput input = {
+		.scene     = file.scene,
+		.detail    = detail,
+		.passes    = none,
+		.boxes     = boxes,
+		.region    = region,
+		.depthCap  = depthCapOf(region, detail.least),
+		.workers   = 4,
+		.faces     = true,
+		.memory    = std::size_t(1) << 40,
+		.forgiving = false,
 	};
 
 	return TestTree {
 		.detail = detail,
-		.tree   = buildTree(input),
+		.tree   = openedTree(input),
 	};
 }
 
@@ -489,7 +496,7 @@ void checkGeometryPoint() {
 	file.shot.render.width  = 320;
 	file.shot.render.height = 200;
 	checkHits("every Detail and Build member", file, testTree(file, 4));
-	for (const std::string name : { "by_distance", "focus_on_view", "pilot", "split_hidden_primitives", "split_crowded_leaves" }) {
+	for (const std::string name : { "by_distance", "focus_on_view", "split_hidden_primitives", "split_crowded_leaves" }) {
 		checkHits("the Detail member " + name + " alone", file, detailedTree(file, { DetailMember::ByDistance, *detailMemberNamed(name) }));
 	}
 	for (const PassMember pass : defaultPassMembers()) {

@@ -1,7 +1,6 @@
 #include "plugins/geometry/tree/grow.h"
 
 #include <algorithm>
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -27,6 +26,8 @@ RootRecord blankRecord() {
 		.firstSolid   = 0,
 		.coarse       = 0,
 		.busy         = 0,
+		.state        = std::uint8_t(NodeState::Fine),
+		.stamp        = 0,
 	};
 
 	const SurfaceLeaf surface = {
@@ -55,28 +56,39 @@ Subtree emptySubtree(const Sprout& sprout) {
 	};
 
 	return Subtree {
-		.box         = sprout.box,
-		.depth       = sprout.depth,
-		.cells       = { root },
-		.surfaces    = {},
-		.solids      = {},
-		.runs        = {},
-		.lists       = {},
-		.references  = {},
-		.cuts        = {},
-		.cutSteps    = {},
-		.wholeFitted = {},
-		.nodes       = {},
-		.root        = blankRecord(),
+		.box        = sprout.box,
+		.depth      = sprout.depth,
+		.cells      = { root },
+		.surfaces   = {},
+		.solids     = {},
+		.runs       = {},
+		.lists      = {},
+		.references = {},
+		.cuts       = {},
+		.cutSteps   = {},
+		.nodes      = {},
+		.root       = blankRecord(),
 	};
 }
 
+CellKind provenKind(const Plan& plan) {
+	if (plan.kind != CellKind::Surface) {
+		return plan.kind;
+	}
+	switch (surfacelessSide(plan.run)) {
+		case 1: return CellKind::Empty;
+		case 2: return CellKind::Filled;
+		default: return CellKind::Surface;
+	}
+}
+
 Plan planAt(const GrowContext& context, const Place& place) {
-	const double tolerance = cellTolerance(context.detail, place.box);
+	const double tolerance = context.sharp ? sharpTolerance(context.detail, place.box) : cellTolerance(context.detail, place.box);
 	const bool deeper      = place.depth < context.depthCap;
 
 	const CellQuery query = {
 		.programs  = place.programs,
+		.slots     = context.slots,
 		.box       = place.box,
 		.tolerance = tolerance,
 		.deeper    = deeper,
@@ -95,6 +107,7 @@ Plan planAt(const GrowContext& context, const Place& place) {
 	};
 
 	plan.kind = plan.kind != CellKind::Branch && cellVerdict(context.detail, asked) == Verdict::Split ? CellKind::Branch : plan.kind;
+	plan.kind = provenKind(plan);
 	plan.run  = plan.kind == CellKind::Surface ? foldedRun(plan.run) : plan.run;
 	return plan;
 }
@@ -108,18 +121,6 @@ Plan planCell(const GrowContext& context, const Sprout& sprout) {
 	};
 
 	return planAt(context, place);
-}
-
-std::array<Sprout, 8> childSprouts(const Sprout& sprout, const std::shared_ptr<const CellPrograms>& programs) {
-	std::array<Sprout, 8> children;
-	for (int octant = 0; octant < 8; ++octant) {
-		children[std::size_t(octant)] = Sprout {
-			.box      = octantBox(sprout.box, octant),
-			.depth    = sprout.depth + 1,
-			.programs = programs,
-		};
-	}
-	return children;
 }
 
 bool sameObjects(const Subtree& subtree, const ProgramList& list, const std::vector<std::uint32_t>& objects) {
@@ -176,7 +177,6 @@ void writeSurface(Subtree& subtree, std::uint32_t cell, const Plan& plan) {
 
 	subtree.cells[cell] = entryOf(CellKind::Surface, subtree.surfaces.size());
 	subtree.surfaces.push_back(leaf);
-	subtree.wholeFitted.push_back(plan.patched || plan.seamed);
 	subtree.runs.insert(subtree.runs.end(), plan.run.begin(), plan.run.end());
 }
 
@@ -236,17 +236,6 @@ Subtree growSubtree(const GrowContext& context, const Sprout& sprout) {
 
 	growCell(context, place, subtree);
 	return subtree;
-}
-
-void regrowCell(const GrowContext& context, const Regrowth& regrowth, Subtree& subtree) {
-	const Place place = {
-		.programs = *regrowth.sprout.programs,
-		.box      = regrowth.sprout.box,
-		.depth    = regrowth.sprout.depth,
-		.cell     = regrowth.cell,
-	};
-
-	growCell(context, place, subtree);
 }
 
 Sprout rootSprout(const GrowContext& context, const Region& region) {

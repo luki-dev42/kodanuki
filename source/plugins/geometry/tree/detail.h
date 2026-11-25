@@ -1,7 +1,6 @@
 #pragma once
 
 #include "plugins/detail/focus_on_view/screen.h"
-#include "plugins/detail/pilot/pilot.h"
 #include "plugins/detail/split_crowded_leaves/split_crowded_leaves.h"
 #include "plugins/detail/split_hidden_primitives/split_hidden_primitives.h"
 #include "plugins/geometry/tree/classify.h"
@@ -33,12 +32,6 @@ enum class DetailMember : std::uint8_t {
 	 * (plugins/detail/focus_on_view).
 	 */
 	FocusOnView,
-	/**
-	 * At most a share of the narrowest footprint the pilot's paths
-	 * measured in the cell, through mirrors and at shadow edges
-	 * (plugins/detail/pilot).
-	 */
-	Pilot,
 	/**
 	 * Splits a cell fitted to its whole field whose fit missed a leaf
 	 * standing between the points it reads
@@ -105,10 +98,6 @@ struct Detail {
 	 * Where the eye can see, for the focus on view member.
 	 */
 	Screen screen;
-	/**
-	 * The widths the pilot measured, none where it is off.
-	 */
-	Pilot pilot;
 	/**
 	 * Every leaf of the scene alone, for the split hidden primitives
 	 * member, none where it is off.
@@ -209,6 +198,17 @@ DetailAnswer answerDetail(DetailMember member, const Detail& detail, const Detai
 double cellTolerance(const Detail& detail, const Box& box);
 
 /**
+ * Return how far a cell may stray for a sharp ray, which shows what it
+ * meets as the camera does wherever the cell stands: every member's
+ * answer folded but FocusOnView's, so a cell outside the frame is held
+ * as one inside it.
+ *
+ * @param detail What the members read.
+ * @param box The cell.
+ */
+double sharpTolerance(const Detail& detail, const Box& box);
+
+/**
  * Return how far the surface may stray at one point, as a cell of no
  * size there would: what a ray leaving a surface there starts off by.
  *
@@ -267,7 +267,7 @@ double footprintShare(double noise);
 
 /**
  * Return the members that are on unless `--use detail=...` says
- * otherwise: ByDistance, FocusOnView, Pilot, SplitHiddenPrimitives and
+ * otherwise: ByDistance, FocusOnView, SplitHiddenPrimitives and
  * SplitCrowdedLeaves.
  */
 std::vector<DetailMember> defaultDetailMembers();
@@ -276,15 +276,26 @@ std::vector<DetailMember> defaultDetailMembers();
  * Return the member a `--use detail=` name names, or nothing for an
  * unknown name.
  *
- * @param name The member's name: by_distance, focus_on_view, pilot,
+ * @param name The member's name: by_distance, focus_on_view,
  *        split_hidden_primitives or split_crowded_leaves.
  */
 std::optional<DetailMember> detailMemberNamed(const std::string& name);
 
 /**
+ * Return a Detail as another shot sees it: the view, the share and the
+ * screen are the shot's; the members, the least tolerance and the
+ * hidden primitives stay.
+ *
+ * @param detail The Detail.
+ * @param shot The shot: its camera and render settings.
+ */
+Detail viewedDetail(const Detail& detail, const Shot& shot);
+
+/**
  * Return the Detail of a scene's frame over a region: its view, the
- * share from its render tolerance and a least tolerance of 1e-4 of the
- * region's longest side.
+ * share from its render tolerance and a least tolerance of 1e-7 of the
+ * region's longest side, so that a pixel's footprint, not the region,
+ * sets how fine a cell near the eye is.
  *
  * @param query The scene, its shot, the region and the members.
  */

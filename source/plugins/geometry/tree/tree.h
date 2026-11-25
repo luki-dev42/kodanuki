@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace kodanuki {
@@ -41,7 +42,7 @@ enum class CellKind : std::uint8_t {
  */
 enum class ProgramSource : std::uint8_t {
 	/**
-	 * A whole object's program, indexed in Scene::objectPrograms.
+	 * A whole object's program, named by its slot (ObjectSlot).
 	 */
 	Object,
 	/**
@@ -84,6 +85,90 @@ enum class FaceKind : std::uint8_t {
 	 * inside to the ring's outside.
 	 */
 	Ring,
+};
+
+/**
+ * How far a packed node is built.
+ *
+ * The values are what PackedNode::state holds, so a zeroed node is
+ * unbuilt.
+ */
+enum class NodeState : std::uint8_t {
+	/**
+	 * A placeholder: nothing of it is written but its record
+	 * (plugins/geometry/tree/lazy.h). The first ray that enters it
+	 * builds it.
+	 */
+	Unbuilt,
+	/**
+	 * A thread is building it, or a finer node in its place; a ray that
+	 * enters it waits.
+	 */
+	Opening,
+	/**
+	 * Built for rays that are not sharp: some of its leaves stand outside
+	 * the frame and are fitted to the looser tolerance there. A sharp ray
+	 * that enters it has a finer node built in its place.
+	 */
+	Loose,
+	/**
+	 * Built as finely as any ray asks.
+	 */
+	Fine,
+	/**
+	 * A finer node stands for it, named by its record. Rays that were
+	 * inside it keep walking what it holds.
+	 */
+	Forwarded,
+};
+
+/**
+ * The slot that holds no object.
+ */
+constexpr std::uint32_t noObject = 0xFFFFFFFFu;
+
+/**
+ * The tile of an object of the scene itself (ObjectSlot::tile).
+ */
+constexpr std::uint32_t noTile = 0xFFFFFFFFu;
+
+/**
+ * One slot of a growing tree's objects: what its lists, cuts and leaves
+ * name an object by, in place of the object's place in the scene's
+ * list.
+ *
+ * An object keeps its slot for as long as its key does: the scene may
+ * list it elsewhere between frames, and its slot follows it there. A
+ * slot whose object is gone is free and is given to the next new object
+ * (followScene(), plugins/geometry/tree/lazy.h). An object of a tile
+ * holds its slot while the tree holds the tile and the tile makes an
+ * object of its key (plugins/geometry/tree/tiles.h).
+ */
+struct ObjectSlot {
+	/**
+	 * The object's key (objectKey()), 0 for a free slot.
+	 */
+	std::uint64_t key;
+	/**
+	 * The object, as an index into Scene::objectPrograms, or into its
+	 * tile's objects; noObject for a free slot.
+	 */
+	std::uint32_t object;
+	/**
+	 * The least scene leaf the object's program names (leastLeaf()): a
+	 * leaf the tree keeps of the object is kept as how far it stands
+	 * from this one, so it follows the object's leaves when the scene
+	 * lists them elsewhere.
+	 */
+	std::uint32_t leaves;
+	/**
+	 * The held tile the object is of, noTile for an object of the scene.
+	 */
+	std::uint32_t tile;
+	/**
+	 * The object's whole program, null for a free slot.
+	 */
+	const Program* program;
 };
 
 /**
@@ -134,7 +219,7 @@ struct ProgramReference {
  */
 struct ProgramCut {
 	/**
-	 * The object, as an index into Scene::objectPrograms.
+	 * The object, as its slot (ObjectSlot).
 	 */
 	std::uint32_t object;
 	/**
@@ -219,6 +304,10 @@ struct SolidLeaf {
  * leaf on the first level writes its kind at the first of its eight
  * slots and leaves the other seven empty. A slot's payload is its
  * kind's base plus the number of slots of that kind below it.
+ *
+ * A branch slot may name a node that is not built yet (NodeState), so a
+ * walk enters a node through enteredNode()
+ * (plugins/geometry/tree/lazy.h).
  */
 struct PackedNode {
 	/**
@@ -251,6 +340,16 @@ struct PackedNode {
 	 * anything. The walk enters only these.
 	 */
 	std::uint8_t busy;
+	/**
+	 * How far the node is built, a NodeState. Walks read it and builders
+	 * write it at once, so both go through std::atomic_ref; every other
+	 * field is written before the state says the node is built.
+	 */
+	std::uint8_t state;
+	/**
+	 * The frame a ray last entered the node in, as Tree::frame was.
+	 */
+	std::uint8_t stamp;
 };
 
 /**
@@ -300,11 +399,16 @@ struct RunHeader {
 	std::uint32_t passWords;
 };
 
+struct Growth;
+
 /**
  * The packed tree of one scene, as rays walk it.
  *
- * It is a function of its leaves alone, so it is the same whatever
- * the number of threads that built it.
+ * A tree that grows (lazyTree(), plugins/geometry/tree/lazy.h) builds a
+ * node when a ray first enters it. Its arrays are reserved once and
+ * never move, so rays read them while other rays' nodes are written at
+ * their ends; the order of its nodes and leaves follows the order rays
+ * came in, and its leaves are the same whatever that order.
  */
 struct Tree {
 	/**
@@ -349,6 +453,16 @@ struct Tree {
 	 * (step, the step it stands for) for each rerouted join.
 	 */
 	std::vector<std::uint16_t> cutSteps;
+	/**
+	 * The frame being drawn, which a node entered in it is stamped with.
+	 */
+	std::uint8_t frame;
+	/**
+	 * What the tree grows from; null for a tree made by hand, whose
+	 * nodes are all built. A tree that grows is moved, never copied,
+	 * since a copy's arrays have no room to grow into.
+	 */
+	std::shared_ptr<Growth> growth;
 };
 
 /**
@@ -517,7 +631,21 @@ std::uint16_t loosening(double amount);
 double loosenedOf(const SurfaceLeaf& leaf);
 
 /**
+ * Return how many levels a tree's root stands above its first root:
+ * two for each time its region grew (growRegion(), plugins/geometry/tree/lazy.h), none for a
+ * hand-made tree. A grid of the region halved that many levels more
+ * keeps the cell size of the first region.
+ *
+ * @param tree The tree.
+ */
+int grownLevels(const Tree& tree);
+
+/**
  * Count the cells, leaves, faces and bytes of a tree.
+ *
+ * The cells are those of the nodes built so far; the nodes, leaves and
+ * bytes are everything the tree's arrays hold, placeholders and nodes a
+ * finer one stands for among them.
  *
  * @param tree The tree.
  */
@@ -527,13 +655,17 @@ TreeStats treeStats(const Tree& tree);
  * Return every surface and solid leaf of a packed tree with its cell, in
  * the order of the tree.
  *
+ * A node that is not built yet holds none, and a node a finer one
+ * stands for gives the finer one's. It must not run while rays grow the
+ * tree.
+ *
  * @param tree The tree.
  */
 std::vector<PlacedLeaf> placedLeaves(const Tree& tree);
 
 /**
  * Return the program a reference names, as the steps to run of its
- * object's whole program.
+ * object's whole program (treeProgram()).
  *
  * @param scene The scene whose object programs the tree's cuts keep
  *        steps of.
@@ -543,21 +675,54 @@ std::vector<PlacedLeaf> placedLeaves(const Tree& tree);
 KeptSteps referencedSteps(const Scene& scene, const Tree& tree, const ProgramReference& reference);
 
 /**
- * Return the object a reference's program is of, as an index into
- * Scene::objectPrograms.
+ * Return the object a reference's program is of, as its slot.
  *
  * @param tree The tree.
  * @param reference The reference.
  */
-std::uint32_t referencedObject(const Tree& tree, const ProgramReference& reference);
+std::uint32_t referencedSlot(const Tree& tree, const ProgramReference& reference);
 
 /**
- * Return the steps of its object's whole program that a cut keeps.
+ * Return the whole program of the object a slot holds: how builds and
+ * walks read a slot as an object of the scene or of a tile. No slots at
+ * all name the scene's objects by their index, as a tree made by hand
+ * does.
  *
- * @param scene The scene.
- * @param tree The tree.
- * @param cut The cut, as an index into Tree::cuts.
+ * @param scene The scene the objects are of.
+ * @param slots The slots.
+ * @param slot The slot, which holds an object.
  */
-std::vector<Step> keptStepsOf(const Scene& scene, const Tree& tree, std::uint32_t cut);
+const Program& slotProgram(const Scene& scene, const std::vector<ObjectSlot>& slots, std::uint32_t slot);
+
+/**
+ * Return the least scene leaf of the object a slot holds
+ * (ObjectSlot::leaves); 0 where no slots are kept, so that a leaf is
+ * kept as itself.
+ *
+ * @param slots The slots.
+ * @param slot The slot, which holds an object.
+ */
+std::uint32_t slotLeastLeaf(const std::vector<ObjectSlot>& slots, std::uint32_t slot);
+
+/**
+ * Return the least scene leaf of the object a tree's slot holds
+ * (slotLeastLeaf() over the slots of the tree's growth, none for a
+ * hand-made tree).
+ *
+ * @param tree The tree.
+ * @param slot The slot.
+ */
+std::uint32_t treeLeastLeaf(const Tree& tree, std::uint32_t slot);
+
+/**
+ * Return the whole program of the object a tree's slot holds
+ * (slotProgram() over the slots of the tree's growth, none for a
+ * hand-made tree).
+ *
+ * @param scene The scene the tree is of.
+ * @param tree The tree.
+ * @param slot The slot.
+ */
+const Program& treeProgram(const Scene& scene, const Tree& tree, std::uint32_t slot);
 
 }

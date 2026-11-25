@@ -184,7 +184,7 @@ math::Vector placedBack(const Placement& placement, const math::Vector& g) {
 
 math::Vector patternSlope(const Coat& coat, const PatternSpot& spot) {
 	const bool local        = !coat.height.world && spot.leaf != noLeaf;
-	const Placement& placed = spot.scene.leaves[local ? spot.leaf : 0].placement;
+	const Placement& placed = sceneLeaf(spot.scene, local ? spot.leaf : 0).placement;
 	const math::Vector p    = local ? placedPoint(placed, spot.point, true) : spot.point;
 	const math::Vector n    = local ? math::normalized(placedPoint(placed, spot.normal, false)) : spot.normal;
 	std::vector<math::Dual> registers;
@@ -310,7 +310,7 @@ Wearing layered(const LeafWear& leaf, const Wearing& wearing, const Layer& layer
 }
 
 Worn bareWorn(const CoatWear& wear, const PatternSpot& spot, std::uint32_t leaf) {
-	const std::uint32_t material = wear.shading.scene.leaves[leaf].material;
+	const std::uint32_t material = sceneLeaf(wear.shading.scene, leaf).material;
 	const Colour black           = { 0, 0, 0 };
 	return Worn {
 		.albedo   = albedoAt(spot, wear.shading.looks.materials[material].albedo, wear.registers),
@@ -334,7 +334,7 @@ Worn leafWorn(const LeafWear& leaf, std::uint32_t index) {
 		.tilt      = { 0, 0, 0 },
 	};
 
-	for (const std::uint32_t coat : leaf.wear.shading.scene.leaves[index].coats) {
+	for (const std::uint32_t coat : sceneLeaf(leaf.wear.shading.scene, index).coats) {
 		const Layer layer = {
 			.coat   = leaf.wear.shading.looks.coats[coat],
 			.weight = coatWeight(probe, leaf.wear.shading.looks.coats[coat]),
@@ -367,7 +367,7 @@ Worn sideWorn(const CoatLadders& ladders, const CoatWear& wear, std::uint32_t in
 }
 
 bool leafCoated(const Scene& scene, std::uint32_t leaf) {
-	return leaf != noLeaf && !scene.leaves[leaf].coats.empty();
+	return leaf != noLeaf && !sceneLeaf(scene, leaf).coats.empty();
 }
 
 bool seamed(const Hit& hit) {

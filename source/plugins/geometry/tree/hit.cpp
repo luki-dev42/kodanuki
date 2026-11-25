@@ -55,7 +55,7 @@ KeptSteps listedProgram(const FieldQuery& query, std::uint32_t k) {
 	const Tree& tree                  = treeOf(query.geometry);
 	const ProgramReference& reference = tree.references[tree.lists[query.list].first + k];
 	if (query.beyond) {
-		return wholeSteps(query.geometry.scene.objectPrograms[referencedObject(tree, reference)]);
+		return wholeSteps(treeProgram(query.geometry.scene, tree, referencedSlot(tree, reference)));
 	}
 	return referencedSteps(query.geometry.scene, tree, reference);
 }

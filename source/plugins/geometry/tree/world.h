@@ -3,17 +3,16 @@
 #include "core/options.h"
 #include "plugins/geometry/tree/detail.h"
 #include "plugins/geometry/tree/tree.h"
-#include "plugins/transport/paths/paths.h"
 #include "syntax/evaluator.h"
 
 namespace kodanuki {
 
 /**
- * The tree of a run and the detail it was built to.
+ * The tree of a run and the detail it grows to.
  */
 struct BuiltGeometry {
 	/**
-	 * How fine the tree's cells were asked to be.
+	 * How fine the tree's cells are asked to be.
 	 */
 	Detail detail;
 	/**
@@ -23,19 +22,34 @@ struct BuiltGeometry {
 };
 
 /**
- * Build the tree a scene is drawn with, flying the pilot first where
- * the Detail members name it.
- *
- * The build frees far more than the tree keeps, spread over the
- * threads' heaps; with glibc that memory is then handed back to the
- * system (malloc_trim), so that the frame's buffers do not come on top
- * of it.
+ * Make the tree a scene is drawn with: its objects' boxes
+ * (objectBoxes()), its region from them and its tiles (boxedRegion(),
+ * heldBoxes()), the Detail of its frame and a tree over them that grows
+ * where rays go (lazyTree()).
  *
  * @param file The scene.
  * @param choices The members and settings.
- * @param paths What `transport/paths` reads of the scene: the features
- *        and the smooth glass the pilot's paths fly with.
+ * @param forgiving Whether a tile's error is printed once and the tile
+ *        left empty (the viewer) rather than ending the program.
  */
-BuiltGeometry builtGeometry(const SceneFile& file, const Choices& choices, const PathsWorld& paths);
+BuiltGeometry builtGeometry(const SceneFile& file, const Choices& choices, bool forgiving);
+
+/**
+ * Have the tree of a run follow its scene, whose shapes may have been
+ * replaced, and return whether it could be kept.
+ *
+ * The tree drops what the objects whose key changed touch
+ * (followScene()); a scene loaded again with the same shapes drops
+ * nothing. A changed object outside the region is listed at the root
+ * and comes in when the region grows to it (growRegion(), each frame).
+ * The held tiles follow the scene's tiles blocks (followedTiles()).
+ * The tree is not kept where the scene is not the one the tree was
+ * made from, or its tiles blocks have other steps; the caller then
+ * makes a tree again, with the least tolerance of this one.
+ *
+ * @param built The tree and its detail.
+ * @param file The scene.
+ */
+bool keptGeometry(BuiltGeometry& built, const SceneFile& file);
 
 }

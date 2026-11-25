@@ -7,6 +7,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <vector>
 
@@ -36,11 +37,27 @@ struct SphereField {
 };
 
 Region reachRegion(const Shot& shot) {
-	const math::Vector& target = shot.camera.target;
-	const double reach         = shot.render.far;
+	const math::Vector& eye = shot.camera.eye;
+	const double reach      = shot.render.far;
 	return Region {
-		.lower = { target.x - reach, target.y - reach, target.z - reach },
+		.lower = { eye.x - reach, eye.y - reach, eye.z - reach },
 		.size  = { 2 * reach, 2 * reach, 2 * reach },
+	};
+}
+
+SphereWorld shotWorld(const Scene& scene, const Shot& shot) {
+	return SphereWorld {
+		.programs = &scene.objectPrograms,
+		.eye      = shot.camera.eye,
+		.far      = shot.render.far,
+	};
+}
+
+SphereWorld openWorld(const Scene& scene) {
+	return SphereWorld {
+		.programs = &scene.objectPrograms,
+		.eye      = { 0, 0, 0 },
+		.far      = std::numeric_limits<double>::infinity(),
 	};
 }
 
@@ -65,6 +82,23 @@ SphereSpan sphereSpan(const Region& region, const Ray& ray) {
 		span.lower         = std::max(span.lower, std::min(a, b));
 		span.upper         = std::min(span.upper, std::max(a, b));
 	}
+	return span;
+}
+
+SphereSpan reachedSpan(const SphereWorld& world, const Ray& ray, SphereSpan span) {
+	if (!std::isfinite(world.far)) {
+		return span;
+	}
+	const math::Vector from = ray.origin - world.eye;
+	const double length     = math::dot(ray.direction, ray.direction);
+	const double along      = math::dot(from, ray.direction) / length;
+	const double square     = along * along - (math::dot(from, from) - world.far * world.far) / length;
+	if (square < 0) {
+		return SphereSpan { .lower = 1, .upper = 0 };
+	}
+	const double half = std::sqrt(square);
+	span.lower        = std::max(span.lower, -along - half);
+	span.upper        = std::min(span.upper, -along + half);
 	return span;
 }
 
@@ -170,7 +204,7 @@ Hit sphereLanded(const SphereMarch& march, const std::vector<double>& values, do
 }
 
 bool sphereOtherMaterial(const SphereMarch& march, const SphereField& past) {
-	return past.source.leaf != noLeaf && march.scene.leaves[past.source.leaf].material != march.ray.within;
+	return past.source.leaf != noLeaf && sceneLeaf(march.scene, past.source.leaf).material != march.ray.within;
 }
 
 std::optional<Hit> sphereCrossing(const SphereMarch& march, const std::vector<double>& values, double t) {
@@ -214,24 +248,26 @@ Hit sphereFromOutside(const SphereMarch& march, const SphereSpan& span) {
 }
 
 Hit sphereTraced(const Geometry& geometry, const Ray& ray) {
+	const SphereWorld& world = *static_cast<const SphereWorld*>(geometry.world);
+
 	const SphereMarch march = {
-		.programs = *static_cast<const std::vector<Program>*>(geometry.world),
+		.programs = *world.programs,
 		.scene    = geometry.scene,
 		.ray      = ray,
 	};
 
-	const SphereSpan span = sphereSpan(geometry.region, ray);
+	const SphereSpan span = reachedSpan(world, ray, sphereSpan(geometry.region, ray));
 	if (march.programs.empty() || span.upper < span.lower) {
 		return missedHit();
 	}
 	return ray.inside ? sphereFromInside(march, span) : sphereFromOutside(march, span);
 }
 
-Geometry sphereGeometry(const Scene& scene, const Region& region) {
+Geometry sphereGeometry(const Scene& scene, const Region& region, const SphereWorld& world) {
 	return Geometry {
 		.scene  = scene,
 		.region = region,
-		.world  = &scene.objectPrograms,
+		.world  = &world,
 		.kernel = sphereTraced,
 	};
 }

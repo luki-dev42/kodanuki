@@ -188,6 +188,7 @@ Ray randomRay(std::mt19937& random, const Scene& scene) {
 		.direction = { float(d[0] / length), float(d[1] / length), float(d[2] / length) },
 		.far       = 1000,
 		.inside    = false,
+		.sharp     = 1,
 		.within    = 0,
 	};
 }
@@ -303,7 +304,8 @@ void scoreTraced(TracedScore& score, const Model& model, const Geometry& traced,
 }
 
 void checkSphereTrace(const char* path, const Model& model, const std::vector<Sample>& samples) {
-	const Geometry traced = sphereGeometry(model.scene, treeOf(model.geometry).region);
+	const SphereWorld world = openWorld(model.scene);
+	const Geometry traced   = sphereGeometry(model.scene, treeOf(model.geometry).region, world);
 	std::vector<TracedScore> scores(samples.size(), TracedScore { .hits = 0, .off = 0, .apart = 0, .unsourced = 0 });
 	inParallel(samples.size(), [&](std::size_t i) {
 		scoreTraced(scores[i], model, traced, samples[i]);
@@ -414,6 +416,7 @@ void checkExit() {
 			.direction = { d[0] / length, d[1] / length, d[2] / length },
 			.far       = 1000,
 			.inside    = true,
+			.sharp     = 1,
 			.within    = 0,
 		};
 
@@ -466,6 +469,7 @@ void checkLawn() {
 			.direction = { 0, 0, -1 },
 			.far       = 1000,
 			.inside    = false,
+			.sharp     = 1,
 			.within    = 0,
 		};
 
@@ -485,7 +489,7 @@ void checkFar() {
 		}
 
 		camera {
-			eye    = [0, -14, 0];
+			eye    = [0, -6, 0];
 			target = [0, 0, 0];
 			fov    = 0.5;
 		}
@@ -501,13 +505,22 @@ void checkFar() {
 
 	const Geometry tree = treeGeometry(file.scene, built.tree);
 
-	const Hit hit = intersect(tree, pixelRay(lensOf(file.shot.camera, file.shot.render), 32, 20));
+	const Ray ray = {
+		.origin    = { 0, -15, 0 },
+		.direction = { 0, 1, 0 },
+		.far       = std::numeric_limits<float>::infinity(),
+		.inside    = false,
+		.sharp     = 1,
+		.within    = 0,
+	};
+
+	const Hit hit = intersect(tree, ray);
 
 	const Near near = {
 		.got       = hit.kind != HitKind::Missed ? hit.distance : 0,
-		.want      = 13,
+		.want      = 14,
 		.tolerance = 0.02,
-		.what      = "a camera ray meets a shape farther from the eye than render.far",
+		.what      = "a ray from behind the eye within render.far meets a shape farther along it than render.far",
 	};
 
 	checkNear(near);
@@ -528,6 +541,7 @@ int wrongLeaves(const Geometry& tree, const std::vector<Strip>& strips) {
 				.direction = { 0, 0, -1 },
 				.far       = 1000,
 				.inside    = false,
+				.sharp     = 1,
 				.within    = 0,
 			};
 
@@ -596,6 +610,7 @@ void checkGable() {
 			.direction = { -1, 0, 0 },
 			.far       = 1000,
 			.inside    = false,
+			.sharp     = 1,
 			.within    = 0,
 		};
 
@@ -647,6 +662,7 @@ void checkBlend() {
 				.direction = { 0, 1, 0 },
 				.far       = 1000,
 				.inside    = false,
+				.sharp     = 1,
 				.within    = 0,
 			};
 
@@ -729,6 +745,8 @@ void checkEntryCrossing() {
 		.references = { reference },
 		.cuts       = {},
 		.cutSteps   = {},
+		.frame      = 0,
+		.growth     = nullptr,
 	};
 
 	const Geometry geometry = treeGeometry(file.scene, tree);
@@ -738,6 +756,7 @@ void checkEntryCrossing() {
 		.direction = { 1, 0, 0 },
 		.far       = 1000,
 		.inside    = false,
+		.sharp     = 1,
 		.within    = 0,
 	};
 
@@ -781,6 +800,7 @@ void checkThinSolid() {
 			.direction = { 0.05, 0.03, -std::sqrt(1 - 0.05 * 0.05 - 0.03 * 0.03) },
 			.far       = 1000,
 			.inside    = false,
+			.sharp     = 1,
 			.within    = 0,
 		};
 
@@ -899,6 +919,7 @@ int leakedRays(const char* name, const char* text) {
 			.direction = { dx / length, dy / length, -1 / length },
 			.far       = 1000,
 			.inside    = true,
+			.sharp     = 1,
 			.within    = glass,
 		};
 
@@ -1014,8 +1035,8 @@ void checkSlabLandings() {
 		}
 
 	)"));
-	const TestTree built   = testTree(file, 8);
-	const TestTree unbuilt = passedTestTree(file, passesWithoutFaceSlabs(), 8);
+	const TestTree built   = testTree(file, 1);
+	const TestTree unbuilt = passedTestTree(file, passesWithoutFaceSlabs(), 1);
 	const Tree& tree       = built.tree;
 	const Tree& bare       = unbuilt.tree;
 	std::mt19937 random(21);

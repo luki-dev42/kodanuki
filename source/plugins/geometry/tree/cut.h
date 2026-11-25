@@ -120,8 +120,8 @@ struct Cut {
  */
 struct CellPrograms {
 	/**
-	 * The objects, as indices into Scene::objectPrograms, in scene
-	 * order.
+	 * The objects, as slots (ObjectSlot), ascending; a slot is the
+	 * object's index into Scene::objectPrograms where no slots are kept.
 	 */
 	std::vector<std::uint32_t> objects;
 	/**
@@ -332,23 +332,6 @@ Box octantBox(const Box& box, int octant);
  * @param region The region.
  */
 Box regionBox(const Region& region);
-
-/**
- * Return the box of a placed leaf's cell.
- *
- * @param region The tree's region.
- * @param leaf The leaf and its cell.
- */
-Box placedBox(const Region& region, const PlacedLeaf& leaf);
-
-/**
- * Return a pixel's footprint at one point: its distance from the eye
- * times the spread, narrowed as toward a corner of the frame.
- *
- * @param view Where the frame is seen from.
- * @param p The point.
- */
-double footprintAt(const View& view, const math::Vector& p);
 
 /**
  * Return a cell's field at a point, the minimum of its programs.

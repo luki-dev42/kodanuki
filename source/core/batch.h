@@ -141,6 +141,11 @@ struct Ray {
 	 */
 	bool inside;
 	/**
+	 * 1 where the path so far left the camera through sharp bounces
+	 * only, as a camera ray does; 0 for any other ray.
+	 */
+	std::uint8_t sharp;
+	/**
 	 * The material of the solid a ray from inside travels in, as an index
 	 * into Looks::materials. The ray stops where it passes into a solid
 	 * of another material, as where a glass rests on a floor. A ray from
