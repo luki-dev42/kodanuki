@@ -7,6 +7,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -14,6 +15,7 @@
 
 namespace kodanuki {
 
+struct Network;
 struct Pattern;
 
 /**
@@ -30,9 +32,17 @@ enum class ValueKind : std::uint8_t {
 	 */
 	List,
 	/**
+	 * A record of named fields, each a value of any kind.
+	 */
+	Record,
+	/**
 	 * A material, as an index into the scene's materials.
 	 */
 	Material,
+	/**
+	 * A coat, as an index into the scene's coats.
+	 */
+	Coat,
 	/**
 	 * A call of a surface, to be emitted as a shape or read as a
 	 * pattern.
@@ -42,6 +52,11 @@ enum class ValueKind : std::uint8_t {
 	 * A bare name such as an axis or a setting's word.
 	 */
 	Word,
+	/**
+	 * A network of lines with its spatial index, made once when the
+	 * scene loads and shared read-only by every copy.
+	 */
+	Network,
 };
 
 /**
@@ -53,30 +68,45 @@ struct Value {
 	 */
 	ValueKind kind;
 	/**
-	 * The number, where it is known when the scene loads.
-	 */
-	double number;
-	/**
 	 * The register of the function being compiled that holds the number,
 	 * or -1 where the number is known.
 	 */
 	std::int32_t slot;
 	/**
-	 * The elements of a list.
-	 */
-	std::vector<Value> items;
-	/**
 	 * The material, as an index into the scene's materials.
 	 */
 	std::uint32_t material;
+	/**
+	 * The coat, as an index into the scene's coats.
+	 */
+	std::uint32_t coat;
+	/**
+	 * The number, where it is known when the scene loads.
+	 */
+	double number;
+	/**
+	 * The elements of a list, or the field values of a record in the
+	 * order of its field names.
+	 */
+	std::vector<Value> items;
+	/**
+	 * The field names of a record, sorted, one per item; shared by its
+	 * copies, so a record copies as cheaply as a list.
+	 */
+	std::shared_ptr<const std::vector<std::string>> fields;
 	/**
 	 * The pattern.
 	 */
 	std::shared_ptr<const Pattern> pattern;
 	/**
-	 * The word.
+	 * The word, as written in the parsed statements, which outlive every
+	 * value; null for every other kind.
 	 */
-	std::string word;
+	const std::string* word;
+	/**
+	 * The network, shared by every copy of the value and never changed.
+	 */
+	std::shared_ptr<const Network> network;
 };
 
 /**
@@ -112,6 +142,58 @@ struct Pattern {
 using Scope = std::unordered_map<std::string, Value>;
 
 /**
+ * A binding of a block below the top level: a parameter, a loop
+ * variable or a `let`.
+ */
+struct Binding {
+	/**
+	 * The name, as written in the parsed statements, which outlive the
+	 * binding.
+	 */
+	const std::string* name;
+	/**
+	 * The value.
+	 */
+	Value value;
+};
+
+/**
+ * A name a surface's compile looked up outside the surface and the
+ * functions it called: in the running tile's bindings, the top level or
+ * the bindings shared by a tile's block, found or not.
+ */
+struct OuterRead {
+	/**
+	 * The name.
+	 */
+	std::string name;
+	/**
+	 * Whether it was bound.
+	 */
+	bool bound;
+	/**
+	 * Its value where it was bound.
+	 */
+	Value value;
+};
+
+/**
+ * A program compiled for a surface and its arguments, with the names it
+ * read outside them while it compiled; it serves the same call again
+ * while those names hold the same values.
+ */
+struct Specialisation {
+	/**
+	 * The program, as an index into the scene's programs.
+	 */
+	std::uint32_t program;
+	/**
+	 * The names read outside the surface, each once.
+	 */
+	std::vector<OuterRead> reads;
+};
+
+/**
  * A surface being compiled into a program of steps.
  */
 struct Compiler {
@@ -131,6 +213,10 @@ struct Compiler {
 	 * The surface normal a pattern reads, as a list of three registers.
 	 */
 	Value normal;
+	/**
+	 * The names the surface read outside itself so far, each once.
+	 */
+	std::vector<OuterRead> reads;
 };
 
 /**
@@ -235,7 +321,8 @@ struct TileContent {
 	 */
 	Scene scene;
 	/**
-	 * The names of the top level the tile read.
+	 * The names of the top level the tile read, and a name for each step
+	 * it read the eye at (eyeReadStep()).
 	 */
 	std::set<std::string> reads;
 	/**
@@ -279,16 +366,34 @@ struct Evaluator {
 	 */
 	std::unordered_map<std::string, const Statement*> definitions;
 	/**
-	 * The scopes, the file's top level first.
+	 * The bindings of the file's top level, or of the running tile's own
+	 * top level.
 	 */
-	std::vector<Scope> scopes;
+	Scope top;
+	/**
+	 * The bindings of the blocks below the top level, the innermost
+	 * block's last; each name is bound once in its block.
+	 */
+	std::vector<Binding> locals;
+	/**
+	 * Where each block below the top level starts in the locals, the
+	 * innermost last; empty at the top level.
+	 */
+	std::vector<std::size_t> blocks;
 	/**
 	 * The bindings a running tile reads below its own top level, shared
 	 * with every tile of its block and never changed; null outside a tile.
 	 */
 	const Scope* shared;
 	/**
-	 * The first scope the running definition sees past the top level.
+	 * The bindings of the running tile, `tile`, `tile_origin` and
+	 * `tile_step`, which its body and every definition it calls read
+	 * below their own locals; null outside a tile.
+	 */
+	const Scope* tile;
+	/**
+	 * The first block below the top level the running definition sees,
+	 * as an index into the blocks.
 	 */
 	std::size_t base;
 	/**
@@ -296,8 +401,8 @@ struct Evaluator {
 	 */
 	Compiler* compiler;
 	/**
-	 * Whether the running definition is a function, which sees only its
-	 * parameters and emits nothing.
+	 * Whether the running definition is a function, which reads the top
+	 * level but binds nothing there, and emits nothing.
 	 */
 	bool isolated;
 	/**
@@ -309,11 +414,19 @@ struct Evaluator {
 	 */
 	Value result;
 	/**
-	 * Each function compiled for a distinct set of list arguments, as an
-	 * index into the scene's programs, by a key of the function and the
-	 * lists.
+	 * Whether the running shape or tile body has met a bare `return;`,
+	 * which skips the rest of it.
 	 */
-	std::map<std::string, std::uint32_t> specialised;
+	bool ended;
+	/**
+	 * The programs compiled for each surface and distinct set of
+	 * arguments, by a key of the surface and its arguments: numbers, and
+	 * lists whose leaves are all numbers, count by their shape alone (they
+	 * are passed when the shape runs), every other argument by its value.
+	 * A key holds one program for each set of values of the names its
+	 * compiles read outside the surface.
+	 */
+	std::map<std::string, std::vector<Specialisation>> specialised;
 	/**
 	 * The default grey material once it is made, or -1.
 	 */
@@ -328,9 +441,19 @@ struct Evaluator {
 	 */
 	bool tiled;
 	/**
-	 * The names of the top level a running tile looked up, found or not.
+	 * The names of the top level a running tile looked up, found or not,
+	 * and a name for each step it read the eye at (eyeReadStep()).
 	 */
 	std::set<std::string> reads;
+	/**
+	 * The camera's eye that `eye(step)` snaps: the file's camera's once a
+	 * camera block has run, the frame's camera's in a tile; none before.
+	 */
+	std::optional<math::Vector> eye;
+	/**
+	 * The `print` calls that have printed in this load or tile run.
+	 */
+	std::set<const Expression*> printed;
 };
 
 /**
@@ -345,19 +468,34 @@ struct Operation {
 	/**
 	 * The first operand.
 	 */
-	Value a;
+	const Value& a;
 	/**
 	 * The second operand.
 	 */
-	Value b;
+	const Value& b;
 	/**
 	 * The third operand.
 	 */
-	Value c;
+	const Value& c;
 	/**
 	 * Where it was written, for errors.
 	 */
 	Location location;
+};
+
+/**
+ * A stop of a list of stops, `[time, values...]`, read by `linear` and
+ * `smooth`.
+ */
+struct TimedStop {
+	/**
+	 * Where the stop is.
+	 */
+	double time;
+	/**
+	 * What holds there.
+	 */
+	std::vector<double> values;
 };
 
 /**
@@ -369,9 +507,10 @@ struct Invocation {
 	 */
 	const Statement& definition;
 	/**
-	 * The arguments, in order.
+	 * The arguments, in order, taken by the call: they are moved into its
+	 * parameters.
 	 */
-	const std::vector<Value>& arguments;
+	std::vector<Value>& arguments;
 	/**
 	 * The context its shapes are emitted in.
 	 */
@@ -474,11 +613,60 @@ LoadedScene loadScene(const std::string& path, double time);
  * top-level name binds it in the tile's own top level, so tiles are run in
  * any order, on any thread, each alone. Its objects are cut and
  * compiled as a load does; its leaves name the snapshot's materials.
+ * `eye(step)` in it snaps the eye given, and each step read is noted
+ * among its reads (eyeReadStep()).
  *
  * @param scene The scene the block is of.
  * @param place The block and the tile.
+ * @param eye The frame's camera's eye.
  */
-TileContent evaluatedTile(const Scene& scene, const TilePlace& place);
+TileContent evaluatedTile(const Scene& scene, const TilePlace& place, const math::Vector& eye);
+
+/**
+ * Return a camera's eye snapped to a grid of a step: the middle of the
+ * grid's cell, step metres wide along each axis, that holds the eye, as
+ * `eye(step)` gives it.
+ *
+ * @param eye The eye.
+ * @param step The grid's step, above 0.
+ */
+math::Vector snappedEye(const math::Vector& eye, double step);
+
+/**
+ * Return the step of a read of the eye a tile noted (TileContent::reads),
+ * or none for the name of a top-level binding.
+ *
+ * A tile notes `eye(step)` as `eye@` and the step written in full, a
+ * name no binding can have.
+ *
+ * @param name The name read.
+ */
+std::optional<double> eyeReadStep(const std::string& name);
+
+/**
+ * Return the step of a read of `eye_band` a tile noted (TileContent::reads),
+ * or none for any other name.
+ *
+ * A tile notes `eye_band(point, radii, step)` as `band@`, the step, the
+ * point and the radii written in full, a name no binding can have.
+ *
+ * @param name The name read.
+ */
+std::optional<double> bandReadStep(const std::string& name);
+
+/**
+ * Return the band a noted read of `eye_band` (bandReadStep()) gives a tile
+ * for an eye: how many of its radii the distance from its point to the
+ * eye, snapped to its step, reaches.
+ *
+ * The point is noted in the tile's own space, so tiles that read the
+ * band of the same place in them note the same name.
+ *
+ * @param name The name read.
+ * @param eye The camera's eye.
+ * @param corner The tile's corner in the world, its `tile_origin`.
+ */
+std::size_t bandOfRead(const std::string& name, const math::Vector& eye, const math::Vector& corner);
 
 /**
  * Return where a tiles block stands in its file.
@@ -493,6 +681,42 @@ const Location& tileBlockLocation(const TileBlock& block);
  * @param items The elements.
  */
 Value listValue(std::vector<Value> items);
+
+/**
+ * Return a record of named fields, its fields sorted by name.
+ *
+ * The names are distinct; a record built by a built-in is made so.
+ *
+ * @param names The field names.
+ * @param items The field values, one per name.
+ */
+Value recordValue(const std::vector<std::string>& names, const std::vector<Value>& items);
+
+/**
+ * Return a network as a value.
+ *
+ * @param network The network.
+ */
+Value networkValue(std::shared_ptr<const Network> network);
+
+/**
+ * Return the point of the Catmull-Rom curve through a list of stops,
+ * as `smooth` reads it, a share of the way from one stop to the next:
+ * the slope at a stop is taken from the stops either side, at an end
+ * from the one stop beside it.
+ *
+ * @param stops The stops, their times rising.
+ * @param at The stop before the point; another stop follows it.
+ * @param share How far from that stop to the next, from 0 to 1.
+ */
+std::vector<double> hermiteValues(const std::vector<TimedStop>& stops, std::size_t at, double share);
+
+/**
+ * Return the word of a value, empty for a value that is not a word.
+ *
+ * @param value The value.
+ */
+const std::string& wordOf(const Value& value);
 
 /**
  * Return a number known when the scene loads.
@@ -540,6 +764,16 @@ std::uint32_t slotOf(Evaluator& evaluator, const Value& value);
  * @param call The definition, its arguments and where it was called.
  */
 Value inlineFunction(Evaluator& evaluator, const Invocation& call);
+
+/**
+ * Whether every name a compile read outside its surface holds what it
+ * held then: bound to the same value, or still unbound. In a tile, each
+ * top-level name counts as read by the tile.
+ *
+ * @param evaluator The evaluator.
+ * @param reads The names and what they held.
+ */
+bool readsHold(Evaluator& evaluator, const std::vector<OuterRead>& reads);
 
 /**
  * Run a lattice's block once and emit its shapes once per copy.

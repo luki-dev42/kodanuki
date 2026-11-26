@@ -210,17 +210,26 @@ across frames.
   was run from: its block's source, the top-level names it read (one
   list shared by the tiles that read the same names) and a key of their
   bindings; with the last of those nodes it is forgotten. A tile runs
-  again when its block's source or a binding it read changes: between
-  frames, the stale tiles run a few thousand at a time, and each batch
-  is followed down the tree and the tiles swept before the next, so the
-  old and new shapes of every tile are never held at once.
+  again when its block's source or a binding it read changes, or the
+  eye it read (`eye(step)`) snapped to a step it read it at: tiles see
+  the frame's eye (`HeldTiles::eye`), and a step a tile read counts as a
+  binding keyed by the snapped eye. The eye is checked where the scene
+  is followed (`keptGeometry()`, with the frame's eye first) and where
+  the reach moves (`moveReach()`), which runs the stale tiles only where
+  the eye moved to another cell at a step some tile read
+  (`eyeMoved()`); a flown camera thus runs again the tiles that read
+  the eye there and no other. Between frames, the stale tiles run a few
+  thousand at a time, and each batch is followed down the tree and the
+  tiles swept before the next, so the old and new shapes of every tile
+  are never held at once.
 - **Hits.** `build/faced_hits` keeps a face's leaf as the program of the
   cell's list it comes from (8 bits) and how far it stands from that
   object's least leaf (16 bits), so it follows the object wherever the
   scene lists it; a face whose leaf does not fit reads it from the field.
 - **Counters.** `bytes.tree` (what the tree holds, free spans left out,
   tiles in), `nodes.opened`, `nodes.reset`, `nodes.forgotten`,
-  `tree.rooted`, `tiles.evaluated`, `tiles.held` and `bytes.tiles`.
+  `tree.rooted`, `tiles.evaluated`, `tiles.seconds` (the wall time of the
+  tile runs, summed over the threads), `tiles.held` and `bytes.tiles`.
 - `openEveryCell()` builds every node as a sharp ray would, for the
   tools and checks that read a whole tree.
 

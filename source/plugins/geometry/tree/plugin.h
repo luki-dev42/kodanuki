@@ -17,8 +17,9 @@ namespace kodanuki {
  * publishes the tree's size as `bytes.tree` (heldBytes()), how many
  * nodes were built, dropped by changes and forgotten as `nodes.opened`,
  * `nodes.reset` and `nodes.forgotten`, how often the region grew as
- * `tree.rooted`, and how many tiles were run, how many it holds and
- * their shapes' size as `tiles.evaluated`, `tiles.held` and
+ * `tree.rooted`, and how many tiles were run, the seconds their runs
+ * took (summed over the threads), how many it holds and their shapes'
+ * size as `tiles.evaluated`, `tiles.seconds`, `tiles.held` and
  * `bytes.tiles`. A tile's error ends the program, or, where a Sink
  * hosts the renderer (the viewer), is printed once and leaves the tile
  * empty.

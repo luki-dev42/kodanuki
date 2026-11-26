@@ -54,6 +54,177 @@ enum class ExpressionKind : std::uint8_t {
 	 * condition where its text is `if`; its names the loop variables.
 	 */
 	Comprehension,
+	/**
+	 * A record, `{ at = [0, 0, 0], radius = 300 }`: its names the field
+	 * names as written and its items their values, one for one.
+	 */
+	Record,
+};
+
+/**
+ * The built-in function a call names, known once the file is parsed.
+ */
+enum class Builtin : std::uint8_t {
+	/**
+	 * No built-in: a call of a definition, or not a call.
+	 */
+	None,
+	/**
+	 * `sqrt`.
+	 */
+	SquareRoot,
+	/**
+	 * `abs`.
+	 */
+	Absolute,
+	/**
+	 * `floor`.
+	 */
+	Floor,
+	/**
+	 * `sin`.
+	 */
+	Sine,
+	/**
+	 * `cos`.
+	 */
+	Cosine,
+	/**
+	 * `sign`.
+	 */
+	Sign,
+	/**
+	 * `atan2`.
+	 */
+	ArcTangent,
+	/**
+	 * `pow`.
+	 */
+	Power,
+	/**
+	 * `min`.
+	 */
+	Minimum,
+	/**
+	 * `max`.
+	 */
+	Maximum,
+	/**
+	 * `clamp`.
+	 */
+	Clamp,
+	/**
+	 * `mix`.
+	 */
+	Mix,
+	/**
+	 * `select`.
+	 */
+	Select,
+	/**
+	 * `dot`.
+	 */
+	Dot,
+	/**
+	 * `cross`.
+	 */
+	Cross,
+	/**
+	 * `length`.
+	 */
+	Length,
+	/**
+	 * `normalize`.
+	 */
+	Normalize,
+	/**
+	 * `all`.
+	 */
+	All,
+	/**
+	 * `any`.
+	 */
+	Any,
+	/**
+	 * `count`.
+	 */
+	Count,
+	/**
+	 * `append`.
+	 */
+	Append,
+	/**
+	 * `join`.
+	 */
+	Join,
+	/**
+	 * `linear`.
+	 */
+	Linear,
+	/**
+	 * `smooth`.
+	 */
+	Smooth,
+	/**
+	 * `hash`.
+	 */
+	Hash,
+	/**
+	 * `noise`.
+	 */
+	Noise,
+	/**
+	 * `fbm`.
+	 */
+	FractalNoise,
+	/**
+	 * `eye`.
+	 */
+	Eye,
+	/**
+	 * `eye_band`.
+	 */
+	EyeBand,
+	/**
+	 * `network`.
+	 */
+	Network,
+	/**
+	 * `nearest`.
+	 */
+	Nearest,
+	/**
+	 * `within`.
+	 */
+	Within,
+	/**
+	 * `matte`.
+	 */
+	Matte,
+	/**
+	 * `plastic`.
+	 */
+	Plastic,
+	/**
+	 * `metal`.
+	 */
+	Metal,
+	/**
+	 * `glass`.
+	 */
+	Glass,
+	/**
+	 * `world`.
+	 */
+	World,
+	/**
+	 * `ramp`.
+	 */
+	Ramp,
+	/**
+	 * `print`.
+	 */
+	Print,
 };
 
 /**
@@ -164,12 +335,18 @@ struct Expression {
 	 */
 	double number;
 	/**
+	 * The built-in a Call names, Builtin::None for every other
+	 * expression.
+	 */
+	Builtin builtin;
+	/**
 	 * The operands, elements or arguments, as its kind says.
 	 */
 	std::vector<Expression> items;
 	/**
 	 * A call's argument names matching its items one for one, empty for
-	 * a positional argument, or a comprehension's loop variables.
+	 * a positional argument, a comprehension's loop variables or a
+	 * record's field names.
 	 */
 	std::vector<std::string> names;
 };
@@ -215,6 +392,13 @@ struct Statement {
  * @param file The file's path, for locations.
  */
 std::vector<Statement> parseSource(const std::string& text, const std::string* file);
+
+/**
+ * Return the built-in a call of this name makes, None for any other name.
+ *
+ * @param name The name.
+ */
+Builtin builtinOf(const std::string& name);
 
 /**
  * Note an error of the load running on this thread as

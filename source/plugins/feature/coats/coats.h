@@ -116,9 +116,13 @@ CoatLadders coatLaddersOf(const Looks& looks, std::uint32_t first);
  * Return whether any leaf of a scene wears a coat, so that the feature
  * is on.
  *
+ * A scene with tiles and coats counts as wearing them, since its tiles'
+ * leaves, made later, may wear any coat made before the block.
+ *
  * @param scene The scene.
+ * @param looks The scene's looks: its materials and coats.
  */
-bool sceneWearsCoats(const Scene& scene);
+bool sceneWearsCoats(const Scene& scene, const Looks& looks);
 
 /**
  * Return the finishes with every rung's finish appended, at the indices

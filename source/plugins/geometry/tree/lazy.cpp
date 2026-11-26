@@ -766,6 +766,7 @@ TileSource tileSource(const LazyInput& input) {
 	return TileSource {
 		.scene     = input.scene,
 		.least     = input.detail.least,
+		.eye       = openReach(input.region).eye,
 		.forgiving = input.forgiving,
 	};
 }
@@ -1241,16 +1242,23 @@ void reachedTiles(Tree& tree) {
 	sweepTiles(tree);
 }
 
+void followTiles(Tree& tree);
+
 void moveReach(Tree& tree, const Reach& reach) {
 	if (!tree.growth || sameReach(reach, tree.growth->reach)) {
 		return;
 	}
-	const Reach old    = tree.growth->reach;
-	tree.growth->reach = reach;
+	const Reach old        = tree.growth->reach;
+	const bool seen        = eyeMoved(tree.growth->tiles, reach.eye);
+	tree.growth->reach     = reach;
+	tree.growth->tiles.eye = reach.eye;
 	movedPrograms(*tree.growth);
 	collapseForwards(tree);
 	reachedTiles(tree);
 	recutBelow(tree, rootVisit(tree), old);
+	if (seen) {
+		followTiles(tree);
+	}
 }
 
 void prepareTree(Tree& tree, const Shot& shot, bool moved) {

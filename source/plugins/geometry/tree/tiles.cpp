@@ -5,10 +5,13 @@
 #include "shared/parallel.h"
 
 #include <algorithm>
+#include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -18,6 +21,7 @@ struct RanTile {
 	TileContent content;
 	std::vector<std::uint64_t> keys;
 	std::vector<Box> boxes;
+	double seconds;
 };
 
 struct TileRange {
@@ -76,6 +80,8 @@ HeldTiles noTiles(const TileSource& source) {
 		.freeNumbers = {},
 		.freeSlots   = {},
 		.readNames   = {},
+		.eye         = source.eye,
+		.eyeSteps    = {},
 		.leaves      = emptyStore(),
 		.steps       = steps,
 		.bounds      = bounds,
@@ -84,6 +90,7 @@ HeldTiles noTiles(const TileSource& source) {
 		.refused     = refusedSteps(source),
 		.told        = {},
 		.evaluated   = 0,
+		.seconds     = 0,
 		.bytes       = 0,
 	};
 }
@@ -208,8 +215,14 @@ std::vector<Box> tileObjectBoxes(const Scene& scene, const Box& tile) {
 	return boxes;
 }
 
+double tileSecondsSince(std::chrono::steady_clock::time_point start) {
+	return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+}
+
 RanTile ranTile(Growth& growth, const TilePlace& place) {
-	TileContent content = evaluatedTile(growth.scene, place);
+	const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+	TileContent content                               = evaluatedTile(growth.scene, place, growth.tiles.eye);
+	const double seconds                              = tileSecondsSince(start);
 	if (!content.error.empty()) {
 		toldError(growth, content.error);
 	}
@@ -219,6 +232,7 @@ RanTile ranTile(Growth& growth, const TilePlace& place) {
 		.content = std::move(content),
 		.keys    = keys,
 		.boxes   = boxes,
+		.seconds = seconds,
 	};
 }
 
@@ -300,24 +314,60 @@ std::size_t shapeBytes(const HeldTile& tile) {
 	return sceneBytes(tile.content.scene) + objects;
 }
 
-std::uint64_t bindingKey(const TileBlock& block, const std::string& name) {
+std::uint64_t eyeKey(const math::Vector& eye, double step) {
+	const math::Vector snapped = snappedEye(eye, step);
+	const std::uint64_t x      = mixedKey(noBinding, std::bit_cast<std::uint64_t>(snapped.x));
+	return mixedKey(mixedKey(x, std::bit_cast<std::uint64_t>(snapped.y)), std::bit_cast<std::uint64_t>(snapped.z));
+}
+
+std::uint64_t bindingKey(const TileBlock& block, const std::string& name, const math::Vector& eye) {
+	if (const std::optional<double> step = eyeReadStep(name)) {
+		return eyeKey(eye, *step);
+	}
 	const auto found = block.bindings.find(name);
 	return found == block.bindings.end() ? noBinding : found->second;
 }
 
-std::uint64_t readKey(const TileBlock& block, const std::vector<std::string>& names) {
+std::uint64_t readKey(const TileBlock& block, const std::vector<std::string>& names, const math::Vector& eye) {
 	std::uint64_t key = noBinding;
 	for (const std::string& name : names) {
-		key = mixedKey(key, bindingKey(block, name));
+		key = mixedKey(key, bindingKey(block, name, eye));
 	}
 	return key;
+}
+
+math::Vector tileCorner(const TileBlock& block, const TilePlace& place) {
+	const Box box = tileBox(block, place);
+	return { box.axes[0].lower, box.axes[1].lower, box.axes[2].lower };
+}
+
+std::uint64_t bandKey(const std::vector<std::string>& names, const math::Vector& eye, const math::Vector& corner) {
+	std::uint64_t key = noBinding;
+	for (const std::string& name : names) {
+		if (bandReadStep(name)) {
+			key = mixedKey(key, bandOfRead(name, eye, corner));
+		}
+	}
+	return key;
+}
+
+void noteEyeSteps(HeldTiles& tiles, const std::vector<std::string>& names) {
+	for (const std::string& name : names) {
+		if (const std::optional<double> step = eyeReadStep(name)) {
+			tiles.eyeSteps.insert(*step);
+		}
+		if (const std::optional<double> step = bandReadStep(name)) {
+			tiles.eyeSteps.insert(*step);
+		}
+	}
 }
 
 void readBindings(HeldTiles& tiles, HeldTile& tile, const TileBlock& block) {
 	const std::vector<std::string> names(tile.content.reads.begin(), tile.content.reads.end());
 	tile.source  = block.source;
 	tile.names   = &*tiles.readNames.insert(names).first;
-	tile.readKey = readKey(block, names);
+	tile.readKey = mixedKey(readKey(block, names, tiles.eye), bandKey(names, tiles.eye, tileCorner(block, tile.place)));
+	noteEyeSteps(tiles, names);
 	block.reads->names.insert(names.begin(), names.end());
 	tile.content.reads = {};
 }
@@ -352,6 +402,7 @@ void placedTile(Growth& growth, std::uint32_t number, RanTile ran, const std::ve
 	tile.bytes = shapeBytes(tile);
 	growth.tiles.bytes += tile.bytes;
 	growth.tiles.evaluated += 1;
+	growth.tiles.seconds += ran.seconds;
 	tile.state = TileState::Held;
 }
 
@@ -448,14 +499,20 @@ bool newTilesReached(const Tree& tree, const Box& box, const Reach& old) {
 	return false;
 }
 
-bool staleTile(const HeldTile& tile, const TileBlock& block, std::map<const std::vector<std::string>*, std::uint64_t>& keys) {
+bool eyeMoved(const HeldTiles& tiles, const math::Vector& eye) {
+	return std::any_of(tiles.eyeSteps.begin(), tiles.eyeSteps.end(), [&](double step) {
+		return eyeKey(tiles.eye, step) != eyeKey(eye, step);
+	});
+}
+
+bool staleTile(const HeldTile& tile, const TileBlock& block, const math::Vector& eye, std::map<const std::vector<std::string>*, std::uint64_t>& keys) {
 	if (tile.source != block.source) {
 		return true;
 	}
 	const auto found        = keys.find(tile.names);
-	const std::uint64_t key = found == keys.end() ? readKey(block, *tile.names) : found->second;
+	const std::uint64_t key = found == keys.end() ? readKey(block, *tile.names, eye) : found->second;
 	keys[tile.names]        = key;
-	return key != tile.readKey;
+	return mixedKey(key, bandKey(*tile.names, eye, tileCorner(block, tile.place))) != tile.readKey;
 }
 
 std::vector<KeyedObject> keyedTileObjects(const std::vector<std::uint64_t>& keys) {
@@ -524,7 +581,7 @@ std::vector<std::uint32_t> staleTiles(const Tree& tree) {
 	std::vector<std::map<const std::vector<std::string>*, std::uint64_t>> keys(growth.scene.tiles.size());
 	for (std::uint32_t number = 0; number < growth.tiles.tiles.size(); ++number) {
 		const HeldTile* tile = growth.tiles.tiles[number].get();
-		if (tile && staleTile(*tile, growth.scene.tiles[tile->place.block], keys[tile->place.block])) {
+		if (tile && staleTile(*tile, growth.scene.tiles[tile->place.block], growth.tiles.eye, keys[tile->place.block])) {
 			stale.push_back(number);
 		}
 	}

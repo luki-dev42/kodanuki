@@ -67,10 +67,11 @@ BuiltGeometry builtGeometry(const SceneFile& file, const Choices& choices, bool 
 	};
 }
 
-bool keptGeometry(BuiltGeometry& built, const SceneFile& file) {
+bool keptGeometry(BuiltGeometry& built, const SceneFile& file, const math::Vector& eye) {
 	if (&built.tree.growth->scene != &file.scene || !sameTileSteps(built.tree.growth->tiles, file.scene)) {
 		return false;
 	}
+	built.tree.growth->tiles.eye = eye;
 	followScene(built.tree, objectKeys(file.scene));
 	built.detail = built.tree.growth->detail;
 	return true;

@@ -504,6 +504,12 @@ void growRegion(Tree& tree, const Box& held);
  * held tiles are then swept (sweptTiles()), so a walk holds only the
  * tiles about its camera.
  *
+ * The tiles then see the reach's eye (HeldTiles::eye). Where that moved
+ * the eye snapped to a step some tile read it at (eyeMoved()), the stale
+ * tiles run again and are followed as on a changed scene
+ * (followScene()): the tiles that read the eye at a step where it moved
+ * to another cell, and no other.
+ *
  * @param tree The tree.
  * @param reach The frame's reach (shotReach()).
  */

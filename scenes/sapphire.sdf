@@ -114,7 +114,7 @@ let pavilion = 43 * pi / 180;
 let flats    = 16;
 let stretch  = 1.32;
 let gem      = [0.4, 0.3];
-let eye      = [0.4, -2.7, 1.9];
+let viewer   = [0.4, -2.7, 1.9];
 let top      = girdle + radius * (1 - share) * sin(bezel) / cos(bezel);
 
 shape facet(normal, offset) {
@@ -149,7 +149,7 @@ let axis   = normalize(cross(seat, down));
 let tip    = atan2(length(cross(seat, down)), dot(seat, down));
 let up     = [0, 0, 1];
 let table  = up * cos(tip) + cross(axis, up) * sin(tip) + axis * dot(axis, up) * (1 - cos(tip));
-let facing = atan2(eye.y - gem.y, eye.x - gem.x);
+let facing = atan2(viewer.y - gem.y, viewer.x - gem.x);
 let spin   = facing - atan2(table.y, table.x);
 
 paint(flooring) at([0, 0, -0.1]) box([12, 12, 0.2], 0);

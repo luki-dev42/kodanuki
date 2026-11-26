@@ -16,9 +16,13 @@ Draft for milestone 1. "Open" marks what is still to be decided.
 | --- | --- | --- |
 | number | `1`, `0.5`, `1e-3`, `pi` | one kind of number |
 | list | `[1, 2, 3]`, `[[0, 0], [0.2, 0.05]]` | one kind of element; a list of numbers is a vector |
+| record | `{ at = [0, 0, 0], radius = 300 }` | named fields, each a value of any kind |
 | colour | `#C41E3A` | a list of three numbers, sRGB turned linear; `[r, g, b]` is linear |
 | material | `plastic(#FFFFFF, roughness = 0.7)` | see Materials |
-| name | `x`, `filmic` | an axis or a setting's word |
+| coat | `coat(wet(0.6), above(0.3))` | see Coats |
+| network | `network(lines, spacing = 8)` | lines with an index by place, see Networks |
+| pattern | `checker(4)` | a call of a surface kept as a value: a ramp's pattern or a mask, see Materials |
+| word | `x`, `filmic` | an axis, a setting's word or a group's name |
 
 Lists are vectors. `+ - * /` work element-wise and a number spreads
 over a list. A list may be built from others by loops written inside
@@ -34,13 +38,83 @@ The loops take what `for` takes, a range or a list; the `if`, which
 may be left out, keeps the elements its condition holds for, and must
 be known when the scene loads.
 
+`append(list, value)` gives a new list with the value added at the
+end, and `join(a, b, ...)` the lists one after another; `[]` is the
+empty list to start from. The value and the lists' elements follow
+the rules of a list's elements (`a list that mixes records of
+different fields`), and other arguments are errors (`append takes a
+list and a value`, `append takes 2 arguments`, `join takes lists`).
+Both give a new list and leave their arguments as they were;
+`let L = append(L, x);` and `let L = join(L, M);` grow `L` where it is
+held, so a loop that builds a list runs in time linear in its length:
+
+```
+let lows = [];
+for i in 0..count(heights) {
+	let lows = append(lows, min(heights[i], 40));
+}
+
+let all = join(lows, [0], extra);
+```
+
+A surface may append and join its lists too, and their elements may be
+worked out at every point (`append([r], p.x)`); a list grown inside an
+`if` that is not known when the scene loads is an error (`lists of
+different lengths`).
+
 `a[i]` indexes, `count(a)` counts, and `.x .y .z .w` and swizzles such
 as `.xz` or `.zyx` read the first four elements. A list that mixes
 kinds (`[1, [2, 3]]`) is an error. There are no strings except the
 path of an `import`.
 
+A record holds named fields, each a value of any kind, a record too.
+`r.radius` reads a field. A member of a record is always a field, so
+`r.x` reads the field `x`; a member of a list is a swizzle. A field
+is written once in a record (`the field 'a' is written twice`), and
+reading one it lacks is an error (`the record has no field 'b'`). A
+list of records holds records of the same fields, in any order
+(`a list that mixes records of different fields`). Records take no
+arithmetic and no comparison; they are values known when the scene
+loads, read at the top level, in shapes, functions and tiles, and a
+record of numbers may be passed to a surface (see Surfaces):
+
+```
+let CITIES = [
+	{ at = [-4000, 2500, 0], radius = 900, style = 1 },
+	{ at = [3000, -1200, 0], radius = 400, style = 2 },
+];
+
+function largest(cities) {
+	let most = 0;
+	for c in cities {
+		let most = max(most, c.radius);
+	}
+	return most;
+}
+
+let radii = [c.radius for c in CITIES];
+```
+
 Booleans are numbers: comparisons `< <= > >= == !=` give 0 or 1, and
-`&& || !` treat 0 as false.
+`&& || !` treat 0 as false and give 0 or 1. `&&` and `||` short-circuit
+when their left side is known when the scene loads (see below): the
+right side is not evaluated when the left decides (`&&` on 0, `||` on
+anything else), so a guard may stand before what it guards:
+
+```
+let found = i >= 0 && L[i].x > 0;   // fine for i = -1
+```
+
+When the left side is not known then (inside a surface, it depends on
+`p` or an argument), both sides are worked out at every point.
+
+A value is *known when the scene loads* when the file works it out as
+it runs: at the top level, in a shape, a function or a tile body (a
+tile runs later, when rays first come, but works its values out the
+same way). Inside a surface, `p`, `n`, the arguments that stay
+arguments (numbers, and lists and records of them; see Surfaces) and
+what is computed from them are not known then: they are worked out at
+every point.
 
 ## Statements
 
@@ -50,13 +124,28 @@ let size = 0.5;             // a binding; `let size = 0.6;` changes it
 for i in 0..4 { ... }       // 0, 1, 2, 3
 for x in 0..3, y in 0..3 { ... }   // nested, x outermost
 for square in board { ... } // each element of a list
-if a < b { ... }            // no else (rule 17); use select(c, a, b)
+if a < b { ... }            // no else
 ```
+
+There is no `else` (`there is no else`). Where one would stand, end a
+shape or a tile body early with `return;` (see Builders), a function
+or a surface with `return value;` (see Functions), pick a value
+with `select(c, a, b)`, call a function that returns the value, or
+index a list by a number.
 
 Every binding and every change of one is written with `let`; there
 is no bare `x = ...`. A `let` of a name already bound in this block or
 one around it changes that binding, so a loop can carry a value out:
 `let d = min(d, e);`. A new name lives until its block ends.
+
+A change keeps the binding's kind (number, list, record, material,
+coat, pattern, word or network; a list of numbers and a list of lists
+are both lists): `door holds a material and cannot be bound to a
+number`. A function or a surface that binds a top-level name makes a
+name of its own, so that is no change. The names of the built-ins
+(`sqrt`, `matte`, `coat`, `pi`, ...) are taken: a `function`, `surface`
+or `shape` of that name, or a top-level `let` of it, is an error
+(`sqrt is a built-in and cannot be defined`, `... cannot be bound`).
 
 ## Surfaces: `surface`
 
@@ -66,7 +155,8 @@ surface sphere(r) { return length(p) - r; }
 
 A `surface` is a function of a point. Inside it `p` is the point (a
 vector of three), and when it is used as a pattern `n` is the surface
-normal. It must `return` a number. Used as a shape, the number is a
+normal. It must `return` a number (see Functions for an early return).
+Used as a shape, the number is a
 distance. Used as a pattern, it is a value in 0..1 for a ramp. Both
 kinds are the same thing.
 
@@ -75,15 +165,43 @@ A shape's distance must never be larger than the true distance
 from cells it cannot reach. A displaced shape must be scaled down by
 hand to keep to it.
 
-The body may use `let`, `for` and `if`. Every loop bound
-must be known when the scene loads: a literal, or `count` of a list
-argument. Loops are unrolled, and `if` becomes a select. A `surface` is
-compiled once per distinct set of list arguments; its number
-arguments stay arguments, so a thousand spheres share one program.
+The body may use `let`, `for` and `if`; a `let` of a top-level name
+makes a name of the surface's own, as in a function. Every loop bound
+must be known when the scene loads: a literal, a top-level number, or
+`count` of a list argument. Loops are unrolled, and `if` becomes a
+select. A `surface` is compiled once per distinct set of arguments,
+where a number, and a list whose elements are all numbers or again such lists, counts only
+by its shape: those stay arguments, so a thousand spheres share one
+program, and so do tiles that pass their own 4 × 4 list of heights
+(`[[...], [...], [...], [...]]`). A record whose fields are all
+numbers, or lists of numbers or such records, counts by its field
+names and their shapes alone, so `disc({ at = [0, 0, 0], radius = 1 })`
+and `disc({ at = [9, 0, 0], radius = 2 })` share one program; a record
+holding anything else is refused (`a record passed to a surface holds
+only numbers and lists of numbers`). Any other argument (a material, a
+pattern, a word) is built into the program, one per distinct value; a
+coat or a network is refused, also inside a list (`a surface takes no
+coat`, `a surface takes no network`). A top-level binding the
+surface reads, itself or through a function it calls, and in a tile
+`tile`, `tile_origin` and `tile_step`, is built in too: the surface is
+compiled once more for each distinct value such a binding holds where
+it is called, so `let k = 1; s(1); let k = 2; s(1);` makes two
+programs, each with its `k`.
 
 Built-ins: `sqrt abs floor sin cos atan2 pow min max clamp mix
 length dot cross normalize select all any sign`, and `pi`; `linear` and
-`smooth` read a list of stops (see Time).
+`smooth` read a list of stops (see Time); `print` writes values (see
+Errors); `hash`, `noise` and `fbm` take numbers known when the scene
+loads (see Hash and noise), and so do `network`, `nearest` and
+`within` (see Networks).
+
+`select(c, a, b)` is `a` where `c` is not 0 and `b` where it is 0.
+With `c` known when the scene loads it picks any two values: two
+materials (`paint(select(width > 5, asphalt, gravel))`), coats, lists
+of other lengths, records. With `c` depending on `p` or on a number
+argument both sides are numbers or lists of numbers, picked element
+by element; anything else is an error (`select picks a material only
+by a condition known when the scene loads`).
 
 ## Functions: `function`
 
@@ -94,14 +212,182 @@ function next(seed) {
 }
 ```
 
-A `function` computes a value. It sees only its parameters: no
-binding of the top level, not even `time` (reading one is an error),
-so it changes nothing outside it, and a value comes out only as what
-it `return`s. It must return, and nothing may follow the return. It
-emits no shapes and is no statement; it is called inside an
-expression: `let seed = next(seed);`. Called from a surface, its body
-is inlined there, so it may work on `p`. The body may use `let`, `for`
-and `if`, as a surface's may.
+A `function` computes a value: a number, a list, a list of lists or
+any other value. It sees its parameters and the bindings of the top
+level, `time` among them, and in a tile the tile's (see Tiles), but not
+its caller's. It changes nothing
+outside it: a `let` of a top-level name makes a name of the
+function's own, which lives until its block ends, and a value comes
+out only as what it `return`s. A `return` may stand inside an `if`
+or a `for`: the first one that runs ends the function with its value.
+Every way through must return (`next never returns`), and nothing
+may follow a return in its own block (`nothing may follow a return`).
+It emits no shapes and is no
+statement; it is called inside an expression: `let seed =
+next(seed);`. Called from a surface, its body is inlined there, so it may work on `p`, and a
+top-level binding it reads is built into the program, as the
+surface's own reads are (see Surfaces).
+In a tile, a top-level binding it reads counts as read by the tile
+(see Tiles). The body may use `let`, `for` and `if`, as a surface's
+may.
+
+```
+function slot(roofs, kind) {
+	for i in 0..count(roofs) {
+		if roofs[i] == kind {
+			return i;
+		}
+	}
+	return -1;
+}
+```
+
+At load time any condition may end it so. Compiled into a surface,
+the same holds for an `if` known when the scene loads (a top-level
+number, a loop's index): the branch is decided then. A return inside
+an `if` that depends on `p` or on a number argument cannot end the
+program early and is an error (`a return inside an if not known when
+the scene loads; use select`); pick the value with `select` instead.
+
+```
+let ROUGHNESS = 3;
+
+function heights(seed) {
+	return [[ROUGHNESS * hash(seed, i, j) for j in 0..4] for i in 0..4];
+}
+```
+
+## Hash and noise
+
+```
+tiles(step = [64, 64, 400], from = [-100, -100, 0], to = [99, 99, 0]) {
+	let height = 40 * fbm(tile.xy / 8, 5);
+	if hash(tile, 3) < 0.3 {
+		at([32, 32, height]) tree(hash(tile, 4));
+	}
+}
+```
+
+`hash(a, ...)` turns numbers and vectors into a number in [0, 1). The
+same arguments give the same number at every load and on every
+machine, and arguments that differ at all give unrelated numbers. A
+vector counts as its numbers in order, so `hash([1, 2])` is
+`hash(1, 2)`, and `-0` is `0`. It mixes the 64 bits of each number in
+turn (the splitmix64 finaliser).
+
+`noise(q)` is value noise for a vector of 2 or 3 numbers, in cells one
+unit across: a random value in [-1, 1] at every whole point and a smooth
+blend between them (the quintic fade), so it is continuous, its slope
+too, and lies in [-1, 1]. Divide the point for larger cells:
+`noise(q.xy / 50)` has cells 50 metres across. `fbm(q, octaves)` adds
+`octaves` layers of it, each of twice the frequency and half the height
+of the one before and with values of its own, and divides by the sum of
+the heights, so it lies in [-1, 1] too. `octaves` is a whole number of 1
+or more.
+
+All three run when the scene loads: at the top level, in shapes,
+functions and tiles. In a surface they take only numbers known then; a
+number that depends on `p` or on a surface's argument is an error,
+`noise is known only when the scene loads`. Open: noise in surfaces.
+
+## Networks
+
+```
+let asphalt = matte(#3A3A3C);
+let wheat   = matte(#C8A951);
+
+let ROADS = network([
+	{ points = [[-900, -40], [-300, 10], [200, 180], [900, 260]], width = 8 },
+	{ points = [[200, 180], [260, 700]], width = 5 },
+], spacing = 8);
+
+tiles(step = [64, 64, 400], from = [-16, -16, 0], to = [15, 15, 0]) {
+	let corner = tile_origin.xy;
+	for s in within(ROADS, corner, corner + [64, 64]) {
+		let a = s.a - corner;
+		let b = s.b - corner;
+		paint(asphalt) clip {
+			capsule([a.x, a.y, 0], [b.x, b.y, 0], s.fields.width / 2);
+			at([32, 32, 0]) box([64, 64, 20], 0);
+		}
+	}
+	let road = nearest(ROADS, corner + [32, 32], 300);
+	if !road.found || road.distance < 30 {
+		return;                                  // wild land, or the verge
+	}
+	let strip = floor(road.along / 40);          // fields 40 m wide along the road
+	if hash(road.line, strip) < 0.6 {
+		paint(wheat) at([32, 32, 0.2]) box([60, 60, 0.4], 0);
+	}
+}
+```
+
+`network(lines, spacing = 8)` makes a network of lines, such as roads
+or rivers, drawn by hand as waypoints. Each line is a list of waypoints
+`[x, y]` or `[x, y, z]`, or a record whose field `points` holds them,
+with any other fields beside (`width`, `kind`). The lines of a network
+all take one form, and its waypoints all hold 2 numbers or all 3. A
+line follows the curve `smooth` draws through its waypoints (see Time),
+its time the distance along the straight pieces between them, and is
+cut into straight segments about `spacing` metres long (default 8): the
+stretch between two waypoints into round(its length / spacing) pieces,
+at least one, so the line passes through every waypoint. A line whose
+last waypoint is its first closes into a loop, with a corner there, as
+a `smooth` curve takes its slope at an end from the one stop beside it.
+To close a loop without a corner, close it on a straight stretch: let
+its first waypoint lie on the straight line between the last but one
+and the second, as in `[[50, 0], [100, 0], [100, 100], [0, 100], [0,
+0], [50, 0]]`; the slopes at its two ends then agree.
+
+The network is built once, where `network` runs, with an index of its
+segments by place. It is a value: a `let` binds it, and a list or a
+record may hold it, a function or a shape take it, and a tile read it
+without a copy; a tile that reads it notes it as it notes any binding.
+It takes no arithmetic, and a surface takes no network (`a surface
+takes no network`). All three built-ins run when the scene loads and,
+like `hash`, take only numbers known then (`nearest is known only when
+the scene loads`).
+
+`nearest(net, q)` finds the point of the network nearest to `q`, a
+vector of 2 or 3 numbers, in x and y (z is ignored), and returns a
+record:
+
+| Field | Holds |
+| --- | --- |
+| `distance` | how far it lies from `q` in x and y |
+| `along` | how far it lies from its line's start, along the segments (with their heights) |
+| `side` | 1 where `q` lies left of the line's direction, -1 right, 0 on it |
+| `line` | the index of its line in `lines` |
+| `at` | the point, as many numbers as a waypoint, its height taken along the segment |
+| `direction` | the unit direction of its segment, as many numbers as a waypoint |
+| `fields` | its line's record without `points`; an empty record for a line of plain waypoints |
+| `found` | 1 |
+
+The line's fields stay in `fields`, so `r.fields.width`, and never
+clash with the others. Of two points equally near, the one of the
+earlier line, or earlier along it, wins. `nearest(net, q, reach)`
+looks no farther than `reach`, and costs only the index's cells within
+it: where nothing lies within reach, `found` is 0, `distance` is
+`reach`, `line` is -1, `fields` an empty record and every other number
+0. Asking whether a point is within 20 m of a road is
+`nearest(ROADS, q, 20).found`.
+
+`within(net, lower, upper)` returns the segments that meet the box from
+corner `lower` to corner `upper` in x and y (z is ignored), edges
+included, each once, in the order of their lines and along each: a list
+of records `{ a, b, line, along, fields }`, `a` and `b` the segment's
+ends, as many numbers as a waypoint, and `along` how far `a` lies from
+its line's start. A segment is the same record in every tile that meets
+it, so a tile draws the pieces that reach into it, clipped to its box.
+
+The errors: `network takes a list of lines and a spacing`, `a line has 2
+points or more`, `a line's record holds its points in 'points'`, `a
+line's points are [x, y] or [x, y, z]`, `a network's points all have 2
+numbers or all 3`, `a line's points in a row differ`, `a network's
+spacing is above 0`, `nearest takes a network, a point of 2 or 3
+numbers and a reach` and `within takes a network and two corners of 2
+or 3 numbers`. Lines of both forms in one list are a list that mixes
+records and other kinds.
 
 ## Builders: `shape`
 
@@ -114,12 +400,34 @@ shape pawn() {
 }
 ```
 
-A `shape` runs at load time and emits shapes. It may call surfaces
+A `shape` runs when the scene loads, or when the tile that calls it
+runs, and emits shapes. It may call surfaces
 (emitting one shape), functions and other shapes, loop and branch. It
-returns nothing, and it may emit nothing. It sees the bindings at the top
-level of the file but not its caller's, and a `let` of a top-level
-name changes it, so a shape can carry a value out (scenes/city.sdf
-draws its random numbers so):
+returns no value, and it may emit nothing. A bare `return;` ends it
+there, from inside any `if`, `for` or `with`: the shapes it emitted
+before stay, the rest of it does not run, and its caller goes on:
+
+```
+shape house(seed) {
+	box([4, 4, 3], 0);
+	if hash(seed) < 0.3 {
+		return;                 // no chimney
+	}
+	at([1, 1, 3]) box([0.3, 0.3, 1], 0);
+}
+```
+
+A `return;` may not stand inside a join or a repeat (`return may not
+stand inside a join or a repeat`), whose shapes are collected first;
+a shape called there may return. A value return in a shape is an error
+(`a shape or a tile body returns no value`), and so is a bare one in a
+surface or a function (`a surface or a function must return a value`)
+or a return at the top level of a file, outside a shape and a tile
+body (`return belongs in a surface, a function, a shape or a tile
+body`). A shape sees the bindings at the top level of the file, and
+in a tile the tile's (see Tiles), but not its caller's, and a `let` of
+a top-level name changes it, so a shape can carry a value out
+(`scenes/city.sdf` draws its random numbers so):
 
 ```
 let seed = 49534;
@@ -213,9 +521,10 @@ A `tiles` block makes shapes where rays come, one tile at a time, for
 a world larger than a load could hold. `step` cuts space into boxes, a
 number spreading over all three and each above 0: tile `[i, j, k]`
 holds the points from `[i, j, k] * step` up to the next. The block's
-body runs once for each tile the renderer needs, with one more binding,
-`tile`, the list `[i, j, k]`, and every shape it emits is moved by
-`tile * step`. It starts from the bindings of the top level where the
+body runs once for each tile the renderer needs, with three more
+bindings: `tile`, the list `[i, j, k]`; `tile_origin`, the corner of the
+tile in the world, `tile * step`; and `tile_step`, the step. Every shape
+it emits is moved by `tile_origin`. It starts from the bindings of the top level where the
 block stands, none made after it, and its `let`s are its own, even of
 a top-level name: tiles run in any order, each alone.
 
@@ -231,9 +540,11 @@ a top-level name: tiles run in any order, each alone.
   cell a ray crosses, the sky's too, is cut down to 4 steps wide to run
   the tiles it meets, even empty ones.
 - Its body, and the shapes it calls, may not hold settings or imports,
-  define functions, surfaces or shapes, hold `tiles`, make materials or coats,
+  define functions, surfaces or shapes, hold `tiles`, make materials,
   say rules or put shapes in groups (`tiles may not ...`); it paints
-  with the materials made before it.
+  with the materials made before it. It applies coats bound before it
+  (see Coats) and makes none (`tiles may only use coats made before
+  them`).
 - A tile's shapes are trusted to stay inside its box and are not
   checked; one that reaches out leaves wrong cells along the edge (steps,
   holes), so a shape that crosses a tile's edge is clipped to the tile
@@ -242,10 +553,89 @@ a top-level name: tiles run in any order, each alone.
   the tree that meets them, and are run and held only where their box
   meets the reach (the sphere of radius `far` about the camera's eye),
   which follows the camera. A tile runs again when the scene's text or a top-level
-  binding it read, `time` among them, changes.
+  binding it read, `time` among them, changes, or the eye it read
+  (`eye`, below) moved to another cell, or a band it read (`eye_band`,
+  below) changed; a binding read by a
+  function or a shape it calls counts.
 - A step is at least 16 least tolerances (1e-7 of the first region,
   or `--least`) along every axis, else
   `a tile's step is at least 16 times the least tolerance, ... m`.
+- The shapes and functions the body calls, however deep, read `tile`,
+  `tile_origin` and `tile_step` too. A called shape works in the tile's
+  own space, as the body does: `at([32, 32, 0])` is 32 m into the tile,
+  wherever the tile lies. `tile_origin` is for what is computed in the
+  world, the same across tiles: noise, roads, a terrain lookup.
+
+  ```
+  shape lawn() {
+  	let middle = tile_origin.xy + [32, 32];       // in the world
+  	at([32, 32, 40 * fbm(middle / 500, 4)]) box([30, 30, 0.1], 0);
+  }
+  ```
+
+  Reading them is no read of the top level. Outside a tile body and
+  what it calls, reading one is an error (`tile is known only inside
+  tiles`), and so is a top-level binding of one (`tile belongs to the
+  tiles and may not be bound at the top level`); a local of the same
+  name hides it, as any local does.
+- A bare `return;` ends the tile body there, as it ends a shape (see
+  Builders): the shapes emitted before it stay. A `return;` in a shape
+  the body calls ends only that shape.
+- `eye(step)` is the camera's eye snapped to a grid of `step` metres:
+  the middle of the grid's cell that holds the eye, `(floor(e / step) +
+  0.5) * step` along each axis, so `eye(100)` of an eye at `[130, -30,
+  7]` is `[150, -50, 50]`. `step` is a number above 0 (`eye's step is a
+  number above 0`). In a tile, and the shapes and functions it calls,
+  the eye is that of the frame being drawn: the clip's camera, or the
+  camera flown in the viewer. A tile notes each step it read the eye at
+  and runs again only where the eye snapped to one of those steps
+  changes, as on a changed binding: a tile that reads `eye(128)` runs
+  again when the camera crosses into another 128 m cell, not while it
+  moves inside one, and a tile that reads no eye never runs again for
+  a moving camera. Choose the detail by the distance to the snapped
+  eye, so a tile's detail changes only as the eye crosses into another
+  cell, two bands here:
+
+  ```
+  shape house(seed) {
+  	let middle = tile_origin + [32, 32, 0];
+  	box([6, 6, 4], 0.1);
+  	if length(middle - eye(1024)) > 3000 {
+  		return;
+  	}
+  	at([0, 0, 4]) roof(seed);
+  	if length(middle - eye(128)) > 600 {
+  		return;
+  	}
+  	windows(seed);
+  }
+  ```
+
+  A tile beyond 3 km of the eye snapped to 1024 m reads only that step;
+  a nearer one reads 128 m too.
+- `eye_band(point, radii, step)` is the band a point lies in about the
+  eye snapped to `step`: how many of the rising `radii` its distance to
+  `eye(step)` reaches, in x and y for a point of 2 numbers and in x, y
+  and z for 3, so 0 inside the first radius and `count(radii)` beyond
+  the last. A tile notes the band it read, not the eye's cell, and runs
+  again only where the band changes: a tile that reads
+  `eye_band(tile_origin.xy + [32, 32], [300, 1000, 3600], 128)` keeps its
+  detail while the camera flies on, until its distance crosses one of
+  the radii. The point is noted in the tile's own space, so tiles that
+  read the band of the same place in them share one note; give the
+  middle of the tile, not a height worked out per tile. Like `eye` it
+  reads the frame's camera, at the top level the file's
+  (`eye_band reads the camera, and no camera block comes before it`),
+  and is an error in a surface (`eye_band is not known in a surface`);
+  a point of other than 2 or 3 numbers, radii that do not rise or a step
+  not above 0 are an error (`eye_band takes a point of 2 or 3 numbers,
+  a list of rising radii and a step above 0`). At the top level, and in the shapes and
+  functions it calls, `eye` reads the file's camera as the camera block
+  before it set it, the clip's camera at the frame's time (`eye reads
+  the camera, and no camera block comes before it`); a value bound
+  there is a binding like any other, and does not follow the camera the
+  viewer flies. In a surface it is an error (`eye is not known in a
+  surface`): pass the snapped eye as an argument.
 - An error in a tile ends `kodanuki` with exit 1; the viewer prints it
   once and leaves the tile empty.
 - `sampler/glowing_surfaces`, `sampler/toward_mirrors` and
@@ -368,6 +758,32 @@ coat(bump(pits, 0.03, span = 0.1), above(0.5, soft = 0.1)) paint(stone) sphere(1
 coat(rust, facing([0, 0, 1], level = 0.3, soft = 0.1, ragged = 0.25, grain = 0.12)) paint(iron) sphere(1);
 ```
 
+A coat is also a value: `coat(effect, mask)`, or a bump alone, written
+as an expression makes one where it runs, which a `let` binds, and
+`coat(c)` with one argument that is a coat applies it. One coat applied
+to many shapes is made once. Bound coats stack with written ones,
+innermost first, and a coat may stand in a list or a record and be
+passed to a function or a shape, but not to a surface:
+
+```
+let wet_road = coat(wet(0.6), facing([0, 0, 1], level = 0.9));
+let worn     = coat(bump(grain, 0.02, span = 0.05));
+
+coat(wet_road) coat(worn) paint(asphalt) box([8, 2, 0.1], 0);
+```
+
+`coat` with one argument takes a bump or a coat, told apart by its kind
+(`coat takes an effect and a mask, a bump alone, or a coat`). Tiles
+apply only coats made before the block, as they paint only with
+materials made before it: a tile body, or a shape it calls, that makes
+a coat is an error (`tiles may only use coats made before them`):
+
+```
+tiles(step = [64, 64, 400]) {
+	coat(wet_road) paint(asphalt) at([32, 32, 0]) box([30, 4, 0.1], 0);
+}
+```
+
 ## Rules
 
 A shape may say rules about the paths that meet it, each a switch of
@@ -415,7 +831,8 @@ differ from frame to frame in any way.
 at([0, 0, 1 + abs(sin(pi * time))]) sphere(0.3);
 ```
 
-`time` cannot be changed: `let time = ...` is an error. The `render`
+`time` cannot be changed: `let time = ...` is an error (`time belongs
+to the clip and cannot be changed`). The `render`
 and `clip` blocks must come out the same at every time.
 
 Two built-ins read a value off a list of stops:
@@ -446,7 +863,11 @@ holds, from it on the second. A `smooth` curve ends at a jump and a
 new one starts.
 
 The second argument is any number, not only `time`: `linear(sway,
-beat)` reads a dance by the beat.
+beat)` reads a dance by the beat. In a surface it may depend on `p`
+or a number argument, `smooth(BANKS, p.x)`; the stops must still be
+known when the scene loads. That compiles to one clamped share per
+pair of stops (a step for a jump) and their sum, so a long list makes
+a long program.
 
 ## Settings
 
@@ -600,9 +1021,9 @@ these rules:
 
 1. After `{` comes a new line, indented one tab; no block stays on one
    line, not even a one-statement `for` or `if`.
-2. The same holds for `[` when the list's elements are lists or
-   materials (profiles, boards, normals, colours): one element per
-   line, with a trailing comma. A vector such as `[0, 0, 0.45]` stays
+2. The same holds for `[` when the list's elements are lists, records
+   or materials (profiles, boards, normals, colours, cities): one
+   element per line, with a trailing comma. A vector such as `[0, 0, 0.45]` stays
    inline.
 3. An empty line follows each block, unless a closing `}` comes next.
    After an `if` or `for` block the empty line is optional. After a
@@ -610,11 +1031,26 @@ these rules:
    block stands at the top level of the file.
 4. In a run of consecutive `let`s or fields, the `=` line
    up. An empty line or a block starts a new run.
+5. No artificial else: never `if a { } if !a { }`, nor complementary
+   conditions such as `if x < 5 { } if x >= 5 { }`. Use an early
+   `return;`, `select`, a function that returns the value, or a list
+   indexed by a number.
 
 ## Errors
 
 The first error stops the load, which returns it as
 `file:line:column: message` (rule 19).
+
+`print(value, ...)` stands as a statement at the top level, in a
+shape, a function or a tile, and writes one line to stderr: the file,
+the line and the values, `scenes/example.sdf:12: 3.5 [1, 2] {x = 1}`.
+Numbers have six significant digits; words print as themselves, other
+values by their kind, `(a material)`. Each `print` writes once per
+load and once each time a tile runs, the first time it is reached, so
+one in a loop writes its first round only. A `print` met while a surface is
+compiled, also in a function it calls, is an error (`a surface does
+not print`), and so is one used as a value (`print stands alone as a
+statement`).
 
 ## Clips
 

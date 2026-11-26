@@ -6,6 +6,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace kodanuki {
@@ -370,9 +371,57 @@ Expression makeExpression(ExpressionKind kind, const Location& location, const s
 		.location = location,
 		.text     = text,
 		.number   = 0,
+		.builtin  = Builtin::None,
 		.items    = {},
 		.names    = {},
 	};
+}
+
+Builtin builtinOf(const std::string& name) {
+	static const std::unordered_map<std::string, Builtin> builtins = {
+		{ "sqrt", Builtin::SquareRoot },
+		{ "abs", Builtin::Absolute },
+		{ "floor", Builtin::Floor },
+		{ "sin", Builtin::Sine },
+		{ "cos", Builtin::Cosine },
+		{ "sign", Builtin::Sign },
+		{ "atan2", Builtin::ArcTangent },
+		{ "pow", Builtin::Power },
+		{ "min", Builtin::Minimum },
+		{ "max", Builtin::Maximum },
+		{ "clamp", Builtin::Clamp },
+		{ "mix", Builtin::Mix },
+		{ "select", Builtin::Select },
+		{ "dot", Builtin::Dot },
+		{ "cross", Builtin::Cross },
+		{ "length", Builtin::Length },
+		{ "normalize", Builtin::Normalize },
+		{ "all", Builtin::All },
+		{ "any", Builtin::Any },
+		{ "count", Builtin::Count },
+		{ "append", Builtin::Append },
+		{ "join", Builtin::Join },
+		{ "linear", Builtin::Linear },
+		{ "smooth", Builtin::Smooth },
+		{ "hash", Builtin::Hash },
+		{ "noise", Builtin::Noise },
+		{ "fbm", Builtin::FractalNoise },
+		{ "eye", Builtin::Eye },
+		{ "eye_band", Builtin::EyeBand },
+		{ "network", Builtin::Network },
+		{ "nearest", Builtin::Nearest },
+		{ "within", Builtin::Within },
+		{ "matte", Builtin::Matte },
+		{ "plastic", Builtin::Plastic },
+		{ "metal", Builtin::Metal },
+		{ "glass", Builtin::Glass },
+		{ "world", Builtin::World },
+		{ "ramp", Builtin::Ramp },
+		{ "print", Builtin::Print },
+	};
+
+	const auto found = builtins.find(name);
+	return found == builtins.end() ? Builtin::None : found->second;
 }
 
 bool isNamedArgument(const Parser& parser) {
@@ -438,6 +487,28 @@ Expression parseList(Parser& parser, const Location& location) {
 	return list;
 }
 
+void parseRecordField(Parser& parser, Expression& record) {
+	const Token& token     = peekToken(parser, 0);
+	const std::string name = expectName(parser);
+	if (std::find(record.names.begin(), record.names.end(), name) != record.names.end()) {
+		fail(token.location, "the field '" + name + "' is written twice");
+	}
+	expect(parser, "=");
+	record.names.push_back(name);
+	record.items.push_back(parseExpression(parser));
+}
+
+Expression parseRecord(Parser& parser, const Location& location) {
+	Expression record = makeExpression(ExpressionKind::Record, location, "");
+	if (accept(parser, "}")) {
+		return record;
+	}
+	do {
+		parseRecordField(parser, record);
+	} while (continues(parser, "}"));
+	return record;
+}
+
 Expression parseGroup(Parser& parser) {
 	const Expression inner = parseExpression(parser);
 	expect(parser, ")");
@@ -452,6 +523,7 @@ Expression parsePrimary(Parser& parser) {
 			.location = token.location,
 			.text     = {},
 			.number   = token.number,
+			.builtin  = Builtin::None,
 			.items    = {},
 			.names    = {},
 		};
@@ -465,6 +537,9 @@ Expression parsePrimary(Parser& parser) {
 	}
 	if (isSymbol(token, "[")) {
 		return parseList(parser, token.location);
+	}
+	if (isSymbol(token, "{")) {
+		return parseRecord(parser, token.location);
 	}
 	fail(token.location, "expected a value");
 	return makeExpression(ExpressionKind::Number, token.location, "");
@@ -487,7 +562,8 @@ Expression parsePostfix(Parser& parser) {
 	Expression expression = parsePrimary(parser);
 	while (true) {
 		if (expression.kind == ExpressionKind::Name && accept(parser, "(")) {
-			expression.kind = ExpressionKind::Call;
+			expression.kind    = ExpressionKind::Call;
+			expression.builtin = builtinOf(expression.text);
 			parseArguments(parser, expression);
 			continue;
 		}
@@ -611,7 +687,10 @@ Statement parseIf(Parser& parser, const Location& location) {
 }
 
 Statement parseReturn(Parser& parser, const Location& location) {
-	Statement result   = makeStatement(StatementKind::Return, location, "");
+	Statement result = makeStatement(StatementKind::Return, location, "");
+	if (accept(parser, ";")) {
+		return result;
+	}
 	result.expressions = { parseExpression(parser) };
 	expect(parser, ";");
 	return result;
@@ -687,12 +766,23 @@ std::vector<Expression> parseModifiers(Parser& parser) {
 	return modifiers;
 }
 
+void refuseReturns(const std::vector<Statement>& body) {
+	for (const Statement& statement : body) {
+		if (statement.kind == StatementKind::Return) {
+			fail(statement.location, "return may not stand inside a join or a repeat");
+			return;
+		}
+		refuseReturns(statement.body);
+	}
+}
+
 Statement parseJoin(Parser& parser, const Location& location) {
 	Statement join = makeStatement(StatementKind::Join, location, expectName(parser));
 	if (accept(parser, "(")) {
 		join.expressions = { parseGroup(parser) };
 	}
 	join.body = parseBlock(parser);
+	refuseReturns(join.body);
 	return join;
 }
 
@@ -703,6 +793,7 @@ Statement parseRepeat(Parser& parser, const Location& location) {
 		fail(location, "repeat takes count and step");
 	}
 	repeat.body = parseBlock(parser);
+	refuseReturns(repeat.body);
 	return repeat;
 }
 
@@ -734,6 +825,9 @@ Statement parsePlace(Parser& parser, const Location& location, bool block) {
 }
 
 Statement parseCall(Parser& parser, const Location& location) {
+	if (isName(peekToken(parser, 0), "else")) {
+		fail(location, "there is no else");
+	}
 	Statement call   = makeStatement(StatementKind::Call, location, "");
 	call.expressions = { parseExpression(parser) };
 	if (call.expressions[0].kind != ExpressionKind::Call) {
@@ -804,12 +898,20 @@ Statement parseStatement(Parser& parser) {
 	return parseCall(parser, token.location);
 }
 
+bool returnsValue(const Statement& statement) {
+	return statement.kind == StatementKind::Return && !statement.expressions.empty();
+}
+
 std::vector<Statement> parseBlock(Parser& parser) {
 	expect(parser, "{");
 	std::vector<Statement> body;
 	while (!accept(parser, "}")) {
 		if (peekToken(parser, 0).kind == TokenKind::End) {
 			fail(peekToken(parser, 0).location, "block never ends");
+			return body;
+		}
+		if (!body.empty() && returnsValue(body.back())) {
+			fail(peekToken(parser, 0).location, "nothing may follow a return");
 			return body;
 		}
 		body.push_back(parseStatement(parser));

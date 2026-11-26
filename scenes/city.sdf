@@ -342,13 +342,11 @@ shape house(middle, heading, size) {
 		paint(stone) at([0, 0, 3.3]) box([wide, 11.35, 0.35], 0);
 		paint(pane) panes(bays, shop);
 		draw();
-		let flat = u < 0.15;
-		if flat {
+		if u < 0.15 {
 			garden(wide, floors * 3.3);
+			return;
 		}
-		if !flat {
-			roofline(wide, floors, stucco);
-		}
+		roofline(wide, floors, stucco);
 	}
 }
 
@@ -538,11 +536,6 @@ shape block(column, line) {
 	let domed   = column == 3 && line == 6;
 	let plaza   = (column == 4 && line == 3) || (column == 6 && line == 7);
 	let special = line == 2 || church || domed || plaza;
-	let wooded  = 0;
-	if !special && line > 0 {
-		draw();
-		let wooded = u < 0.14;
-	}
 	if church || domed || plaza {
 		square(lx, ly, plaza);
 	}
@@ -552,12 +545,17 @@ shape block(column, line) {
 	if domed {
 		hall(lx, ly);
 	}
-	if !special && wooded {
-		park(lx, ly);
+	if special {
+		return;
 	}
-	if !special && !wooded {
-		perimeter(lx, ly);
+	if line > 0 {
+		draw();
+		if u < 0.14 {
+			park(lx, ly);
+			return;
+		}
 	}
+	perimeter(lx, ly);
 }
 
 shape mountain(place, tall, wide) {

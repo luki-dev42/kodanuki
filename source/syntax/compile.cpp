@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -12,12 +13,53 @@ bool isRuntime(const Value& value) {
 	if (value.kind == ValueKind::Number) {
 		return true;
 	}
-	if (value.kind != ValueKind::List) {
+	if (value.kind != ValueKind::List && value.kind != ValueKind::Record) {
 		return false;
 	}
-	return std::all_of(value.items.begin(), value.items.end(), [](const Value& item) {
-		return item.kind == ValueKind::Number;
-	});
+	return std::all_of(value.items.begin(), value.items.end(), isRuntime);
+}
+
+bool holdsRecord(const Value& value) {
+	return value.kind == ValueKind::Record || std::any_of(value.items.begin(), value.items.end(), holdsRecord);
+}
+
+bool holdsCoat(const Value& value) {
+	return value.kind == ValueKind::Coat || std::any_of(value.items.begin(), value.items.end(), holdsCoat);
+}
+
+bool holdsNetwork(const Value& value) {
+	return value.kind == ValueKind::Network || std::any_of(value.items.begin(), value.items.end(), holdsNetwork);
+}
+
+bool unpassable(const Value& argument) {
+	return holdsRecord(argument) && !isRuntime(argument);
+}
+
+void describeShape(std::ostringstream& out, const Value& value);
+
+void describeFields(std::ostringstream& out, const Value& record) {
+	out << '{';
+	for (std::size_t i = 0; i < record.items.size(); ++i) {
+		out << (*record.fields)[i] << '=';
+		describeShape(out, record.items[i]);
+		out << ',';
+	}
+	out << '}';
+}
+
+void describeShape(std::ostringstream& out, const Value& value) {
+	if (value.kind == ValueKind::Record) {
+		describeFields(out, value);
+		return;
+	}
+	if (value.kind != ValueKind::List) {
+		return;
+	}
+	out << '[' << value.items.size();
+	for (const Value& item : value.items) {
+		describeShape(out, item);
+	}
+	out << ']';
 }
 
 void describe(std::ostringstream& out, const Value& value) {
@@ -31,7 +73,7 @@ void describe(std::ostringstream& out, const Value& value) {
 		return;
 	}
 	if (value.kind == ValueKind::Word) {
-		out << value.word;
+		out << wordOf(value);
 		return;
 	}
 	out << value.number << '/' << value.material;
@@ -39,7 +81,8 @@ void describe(std::ostringstream& out, const Value& value) {
 
 void describeArgument(std::ostringstream& out, const Value& argument) {
 	if (isRuntime(argument)) {
-		out << '#' << (argument.kind == ValueKind::List ? argument.items.size() : 0);
+		out << '#';
+		describeShape(out, argument);
 		return;
 	}
 	describe(out, argument);
@@ -75,11 +118,11 @@ Value argumentValue(Compiler& compiler, const Value& argument) {
 
 		return slotValue(pushStep(compiler, argument));
 	}
-	std::vector<Value> items;
-	for (const Value& item : argument.items) {
-		items.push_back(argumentValue(compiler, item));
+	Value value = argument;
+	for (Value& item : value.items) {
+		item = argumentValue(compiler, item);
 	}
-	return listValue(items);
+	return value;
 }
 
 std::vector<Value> argumentValues(Compiler& compiler, const std::vector<Value>& arguments) {
@@ -104,7 +147,7 @@ Value inputVector(Compiler& compiler, Opcode x) {
 
 		items.push_back(slotValue(pushStep(compiler, input)));
 	}
-	return listValue(items);
+	return listValue(std::move(items));
 }
 
 void startProgram(Compiler& compiler, const Pattern& pattern) {
@@ -126,14 +169,15 @@ Compiler emptyCompiler() {
 		.constants = {},
 		.point     = numberValue(0),
 		.normal    = numberValue(0),
+		.reads     = {},
 	};
 }
 
-Program compileFunction(Evaluator& evaluator, const Pattern& pattern) {
-	Compiler compiler                  = emptyCompiler();
-	Compiler* const saved              = evaluator.compiler;
-	evaluator.compiler                 = &compiler;
-	const std::vector<Value> arguments = argumentValues(compiler, pattern.arguments);
+Compiler compileFunction(Evaluator& evaluator, const Pattern& pattern) {
+	Compiler compiler            = emptyCompiler();
+	Compiler* const saved        = evaluator.compiler;
+	evaluator.compiler           = &compiler;
+	std::vector<Value> arguments = argumentValues(compiler, pattern.arguments);
 	startProgram(compiler, pattern);
 
 	const Invocation invocation = {
@@ -152,22 +196,56 @@ Program compileFunction(Evaluator& evaluator, const Pattern& pattern) {
 	}
 	compiler.program.result = slotOf(evaluator, result);
 	evaluator.compiler      = saved;
-	return compiler.program;
+	return compiler;
+}
+
+std::optional<std::uint32_t> heldProgram(Evaluator& evaluator, const std::string& key) {
+	const auto found = evaluator.specialised.find(key);
+	if (found == evaluator.specialised.end()) {
+		return std::nullopt;
+	}
+	for (const Specialisation& held : found->second) {
+		if (readsHold(evaluator, held.reads)) {
+			return held.program;
+		}
+	}
+	return std::nullopt;
+}
+
+std::uint32_t compiledProgram(Evaluator& evaluator, const Pattern& pattern, const std::string& key) {
+	const Compiler compiled = compileFunction(evaluator, pattern);
+	evaluator.scene.programs.push_back(compiled.program);
+
+	const Specialisation made = {
+		.program = std::uint32_t(evaluator.scene.programs.size() - 1),
+		.reads   = compiled.reads,
+	};
+
+	evaluator.specialised[key].push_back(made);
+	return made.program;
 }
 
 std::uint32_t specialise(Evaluator& evaluator, const Pattern& pattern) {
 	if (failed()) {
 		return 0;
 	}
-	const std::string key = specialisationKey(pattern);
-	const auto found      = evaluator.specialised.find(key);
-	if (found != evaluator.specialised.end()) {
-		return found->second;
+	if (std::any_of(pattern.arguments.begin(), pattern.arguments.end(), holdsNetwork)) {
+		fail(pattern.location, "a surface takes no network");
+		return 0;
 	}
-	evaluator.scene.programs.push_back(compileFunction(evaluator, pattern));
-	const std::uint32_t id     = std::uint32_t(evaluator.scene.programs.size() - 1);
-	evaluator.specialised[key] = id;
-	return id;
+	if (std::any_of(pattern.arguments.begin(), pattern.arguments.end(), unpassable)) {
+		fail(pattern.location, "a record passed to a surface holds only numbers and lists of numbers");
+		return 0;
+	}
+	if (std::any_of(pattern.arguments.begin(), pattern.arguments.end(), holdsCoat)) {
+		fail(pattern.location, "a surface takes no coat");
+		return 0;
+	}
+	const std::string key = specialisationKey(pattern);
+	if (const std::optional<std::uint32_t> held = heldProgram(evaluator, key)) {
+		return *held;
+	}
+	return compiledProgram(evaluator, pattern, key);
 }
 
 void pushArgument(Evaluator& evaluator, const Value& argument) {

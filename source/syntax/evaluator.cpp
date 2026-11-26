@@ -1,21 +1,29 @@
 #include "syntax/evaluator.h"
 
+#include "math/random.h"
 #include "sdf/compare.h"
 #include "sdf/numbers.h"
 #include "syntax/compile.h"
+#include "syntax/network.h"
 
 #include <algorithm>
 #include <array>
 #include <bit>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <set>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -25,62 +33,136 @@ namespace kodanuki {
 Value numberValue(double number) {
 	return Value {
 		.kind     = ValueKind::Number,
-		.number   = number,
 		.slot     = -1,
-		.items    = {},
 		.material = 0,
+		.coat     = 0,
+		.number   = number,
+		.items    = {},
+		.fields   = nullptr,
 		.pattern  = nullptr,
-		.word     = {},
+		.word     = nullptr,
+		.network  = nullptr,
 	};
+}
+
+const Value& zeroValue() {
+	static const Value zero = numberValue(0);
+	return zero;
 }
 
 Value listValue(std::vector<Value> items) {
 	return Value {
 		.kind     = ValueKind::List,
-		.number   = 0,
 		.slot     = -1,
-		.items    = std::move(items),
 		.material = 0,
+		.coat     = 0,
+		.number   = 0,
+		.items    = std::move(items),
+		.fields   = nullptr,
 		.pattern  = nullptr,
-		.word     = {},
+		.word     = nullptr,
+		.network  = nullptr,
+	};
+}
+
+std::vector<std::size_t> sortedOrder(const std::vector<std::string>& names) {
+	std::vector<std::size_t> order(names.size());
+	std::iota(order.begin(), order.end(), 0);
+	std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+		return names[a] < names[b];
+	});
+	return order;
+}
+
+Value recordValue(const std::vector<std::string>& names, const std::vector<Value>& items) {
+	std::vector<std::string> fields;
+	std::vector<Value> values;
+	fields.reserve(names.size());
+	values.reserve(names.size());
+	for (const std::size_t i : sortedOrder(names)) {
+		fields.push_back(names[i]);
+		values.push_back(items[i]);
+	}
+	return Value {
+		.kind     = ValueKind::Record,
+		.slot     = -1,
+		.material = 0,
+		.coat     = 0,
+		.number   = 0,
+		.items    = std::move(values),
+		.fields   = std::make_shared<const std::vector<std::string>>(std::move(fields)),
+		.pattern  = nullptr,
+		.word     = nullptr,
+		.network  = nullptr,
 	};
 }
 
 Value slotValue(std::uint32_t slot) {
 	return Value {
 		.kind     = ValueKind::Number,
-		.number   = 0,
 		.slot     = std::int32_t(slot),
-		.items    = {},
 		.material = 0,
+		.coat     = 0,
+		.number   = 0,
+		.items    = {},
+		.fields   = nullptr,
 		.pattern  = nullptr,
-		.word     = {},
+		.word     = nullptr,
+		.network  = nullptr,
+	};
+}
+
+Value networkValue(std::shared_ptr<const Network> network) {
+	return Value {
+		.kind     = ValueKind::Network,
+		.slot     = -1,
+		.material = 0,
+		.coat     = 0,
+		.number   = 0,
+		.items    = {},
+		.fields   = nullptr,
+		.pattern  = nullptr,
+		.word     = nullptr,
+		.network  = std::move(network),
 	};
 }
 
 Value patternValue(const Pattern& pattern) {
 	return Value {
 		.kind     = ValueKind::Pattern,
-		.number   = 0,
 		.slot     = -1,
-		.items    = {},
 		.material = 0,
+		.coat     = 0,
+		.number   = 0,
+		.items    = {},
+		.fields   = nullptr,
 		.pattern  = std::make_shared<const Pattern>(pattern),
-		.word     = {},
+		.word     = nullptr,
+		.network  = nullptr,
 	};
+}
+
+const std::string& wordOf(const Value& value) {
+	static const std::string none;
+	return value.word ? *value.word : none;
 }
 
 bool isKnown(const Value& value) {
 	return value.kind == ValueKind::Number && value.slot < 0;
 }
 
+bool sameFields(const Value& a, const Value& b) {
+	return a.fields == b.fields || (a.fields && b.fields && *a.fields == *b.fields);
+}
+
+bool sameValue(const Value& a, const Value& b);
+
 bool sameItems(const Value& a, const Value& b) {
 	if (a.items.size() != b.items.size()) {
 		return false;
 	}
 	for (std::size_t i = 0; i < a.items.size(); ++i) {
-		const bool same = a.items[i].slot == b.items[i].slot && a.items[i].number == b.items[i].number;
-		if (!same || !sameItems(a.items[i], b.items[i])) {
+		if (!sameValue(a.items[i], b.items[i])) {
 			return false;
 		}
 	}
@@ -89,7 +171,7 @@ bool sameItems(const Value& a, const Value& b) {
 
 bool sameValue(const Value& a, const Value& b) {
 	const bool sameScalar = a.kind == b.kind && a.slot == b.slot && a.number == b.number;
-	const bool sameObject = a.material == b.material && a.pattern == b.pattern && a.word == b.word;
+	const bool sameObject = a.material == b.material && a.coat == b.coat && a.pattern == b.pattern && wordOf(a) == wordOf(b) && a.network == b.network && sameFields(a, b);
 	return sameScalar && sameObject && sameItems(a, b);
 }
 
@@ -97,9 +179,12 @@ const char* kindName(ValueKind kind) {
 	switch (kind) {
 		case ValueKind::Number: return "a number";
 		case ValueKind::List: return "a list";
+		case ValueKind::Record: return "a record";
 		case ValueKind::Material: return "a material";
+		case ValueKind::Coat: return "a coat";
 		case ValueKind::Pattern: return "a pattern";
 		case ValueKind::Word: return "a word";
+		case ValueKind::Network: return "a network";
 	}
 
 	return "?";
@@ -181,7 +266,7 @@ void refusedInTiles(const Evaluator& evaluator, const Location& location, const 
 
 void expectNumber(const Value& value, const Location& location) {
 	if (value.kind == ValueKind::Word) {
-		fail(location, "unknown name '" + value.word + "'");
+		fail(location, "unknown name '" + wordOf(value) + "'");
 	}
 	if (value.kind != ValueKind::Number) {
 		fail(location, std::string("expected a number, found ") + kindName(value.kind));
@@ -206,12 +291,6 @@ Value emitOperation(Evaluator& evaluator, const Operation& operation) {
 }
 
 Value applyScalar(Evaluator& evaluator, const Operation& operation) {
-	expectNumber(operation.a, operation.location);
-	expectNumber(operation.b, operation.location);
-	expectNumber(operation.c, operation.location);
-	if (failed()) {
-		return numberValue(0);
-	}
 	if (isKnown(operation.a) && isKnown(operation.b) && isKnown(operation.c)) {
 		const Numbers operands = {
 			.a = operation.a.number,
@@ -220,6 +299,12 @@ Value applyScalar(Evaluator& evaluator, const Operation& operation) {
 		};
 
 		return numberValue(fold(operation.opcode, operands));
+	}
+	expectNumber(operation.a, operation.location);
+	expectNumber(operation.b, operation.location);
+	expectNumber(operation.c, operation.location);
+	if (failed()) {
+		return numberValue(0);
 	}
 	return emitOperation(evaluator, operation);
 }
@@ -263,10 +348,11 @@ Value apply(Evaluator& evaluator, const Operation& operation) {
 	}
 	std::vector<Value> items;
 	const std::size_t size = broadcastSize(operation);
+	items.reserve(size);
 	for (std::size_t i = 0; i < size; ++i) {
 		items.push_back(apply(evaluator, itemOperation(operation, i)));
 	}
-	return listValue(items);
+	return listValue(std::move(items));
 }
 
 Value foldList(Evaluator& evaluator, const Operation& operation) {
@@ -279,7 +365,7 @@ Value foldList(Evaluator& evaluator, const Operation& operation) {
 			.opcode   = operation.opcode,
 			.a        = total,
 			.b        = operation.a.items[i],
-			.c        = numberValue(0),
+			.c        = zeroValue(),
 			.location = operation.location,
 		};
 
@@ -293,7 +379,7 @@ Value dotValue(Evaluator& evaluator, const Operation& operation) {
 		.opcode   = Opcode::Multiply,
 		.a        = operation.a,
 		.b        = operation.b,
-		.c        = numberValue(0),
+		.c        = zeroValue(),
 		.location = operation.location,
 	};
 
@@ -302,8 +388,8 @@ Value dotValue(Evaluator& evaluator, const Operation& operation) {
 	const Operation sum = {
 		.opcode   = Opcode::Add,
 		.a        = products,
-		.b        = numberValue(0),
-		.c        = numberValue(0),
+		.b        = zeroValue(),
+		.c        = zeroValue(),
 		.location = operation.location,
 	};
 
@@ -315,8 +401,8 @@ Value lengthValue(Evaluator& evaluator, const Value& a, const Location& location
 		const Operation magnitude = {
 			.opcode   = Opcode::Absolute,
 			.a        = a,
-			.b        = numberValue(0),
-			.c        = numberValue(0),
+			.b        = zeroValue(),
+			.c        = zeroValue(),
 			.location = location,
 		};
 
@@ -327,7 +413,7 @@ Value lengthValue(Evaluator& evaluator, const Value& a, const Location& location
 		.opcode   = Opcode::Multiply,
 		.a        = a,
 		.b        = a,
-		.c        = numberValue(0),
+		.c        = zeroValue(),
 		.location = location,
 	};
 
@@ -336,8 +422,8 @@ Value lengthValue(Evaluator& evaluator, const Value& a, const Location& location
 	const Operation root = {
 		.opcode   = Opcode::SquareRoot,
 		.a        = squared,
-		.b        = numberValue(0),
-		.c        = numberValue(0),
+		.b        = zeroValue(),
+		.c        = zeroValue(),
 		.location = location,
 	};
 
@@ -360,7 +446,7 @@ Value crossItem(Evaluator& evaluator, const Operation& operation, std::size_t i)
 		.opcode   = Opcode::Multiply,
 		.a        = listItem(operation.a, j, operation.location),
 		.b        = listItem(operation.b, k, operation.location),
-		.c        = numberValue(0),
+		.c        = zeroValue(),
 		.location = operation.location,
 	};
 
@@ -370,7 +456,7 @@ Value crossItem(Evaluator& evaluator, const Operation& operation, std::size_t i)
 		.opcode   = Opcode::Multiply,
 		.a        = listItem(operation.a, k, operation.location),
 		.b        = listItem(operation.b, j, operation.location),
-		.c        = numberValue(0),
+		.c        = zeroValue(),
 		.location = operation.location,
 	};
 
@@ -380,7 +466,7 @@ Value crossItem(Evaluator& evaluator, const Operation& operation, std::size_t i)
 		.opcode   = Opcode::Subtract,
 		.a        = left,
 		.b        = right,
-		.c        = numberValue(0),
+		.c        = zeroValue(),
 		.location = operation.location,
 	};
 
@@ -405,15 +491,26 @@ std::size_t constantIndex(const Value& value, const Location& location) {
 
 Value swizzle(const Value& value, const std::string& members, const Location& location) {
 	std::vector<Value> items;
+	items.reserve(members.size());
 	for (const char member : members) {
-		const std::size_t index = std::string("xyzw").find(member);
+		const std::size_t index = std::string_view("xyzw").find(member);
 		if (index == std::string::npos) {
 			fail(location, "unknown member '" + members + "'");
 			return numberValue(0);
 		}
 		items.push_back(listItem(value, index, location));
 	}
-	return items.size() == 1 ? items[0] : listValue(items);
+	return items.size() == 1 ? std::move(items[0]) : listValue(std::move(items));
+}
+
+Value fieldOf(const Value& record, const std::string& name, const Location& location) {
+	const std::vector<std::string>& fields = *record.fields;
+	const auto found                       = std::find(fields.begin(), fields.end(), name);
+	if (found == fields.end()) {
+		fail(location, "the record has no field '" + name + "'");
+		return numberValue(0);
+	}
+	return record.items[std::size_t(found - fields.begin())];
 }
 
 double srgbToLinear(double c) {
@@ -426,7 +523,7 @@ Value colourValue(const std::string& hex) {
 		const double channel = double(std::stoi(hex.substr(2 * i, 2), nullptr, 16)) / 255.0;
 		items.push_back(numberValue(srgbToLinear(channel)));
 	}
-	return listValue(items);
+	return listValue(std::move(items));
 }
 
 Value* findInScope(Scope& scope, const std::string& name) {
@@ -434,27 +531,106 @@ Value* findInScope(Scope& scope, const std::string& name) {
 	return found == scope.end() ? nullptr : &found->second;
 }
 
-Value* findName(Evaluator& evaluator, const std::string& name) {
-	for (std::size_t i = evaluator.scopes.size(); i > evaluator.base; --i) {
-		if (Value* found = findInScope(evaluator.scopes[i - 1], name)) {
-			return found;
+std::size_t visibleStart(const Evaluator& evaluator) {
+	return evaluator.base < evaluator.blocks.size() ? evaluator.blocks[evaluator.base] : evaluator.locals.size();
+}
+
+bool namedAs(const Binding& binding, const std::string& name) {
+	return binding.name == &name || *binding.name == name;
+}
+
+Value* findLocal(Evaluator& evaluator, const std::string& name) {
+	const std::size_t start = visibleStart(evaluator);
+	for (std::size_t i = evaluator.locals.size(); i > start; --i) {
+		if (namedAs(evaluator.locals[i - 1], name)) {
+			return &evaluator.locals[i - 1].value;
 		}
 	}
-	if (evaluator.isolated) {
-		return nullptr;
-	}
+	return nullptr;
+}
+
+void openBlock(Evaluator& evaluator) {
+	evaluator.blocks.push_back(evaluator.locals.size());
+}
+
+void closeBlock(Evaluator& evaluator) {
+	evaluator.locals.erase(evaluator.locals.begin() + std::ptrdiff_t(evaluator.blocks.back()), evaluator.locals.end());
+	evaluator.blocks.pop_back();
+}
+
+void bindLocal(Evaluator& evaluator, const std::string& name, Value value) {
+	evaluator.locals.emplace_back(&name, std::move(value));
+}
+
+Value* findTop(Evaluator& evaluator, const std::string& name) {
 	if (evaluator.tiled) {
 		evaluator.reads.insert(name);
 	}
-	return findInScope(evaluator.scopes[0], name);
+	return findInScope(evaluator.top, name);
+}
+
+Value* findName(Evaluator& evaluator, const std::string& name) {
+	if (Value* found = findLocal(evaluator, name)) {
+		return found;
+	}
+	return findTop(evaluator, name);
+}
+
+const Value* readInScope(const Scope* scope, const std::string& name) {
+	if (!scope) {
+		return nullptr;
+	}
+	const auto found = scope->find(name);
+	return found == scope->end() ? nullptr : &found->second;
 }
 
 const Value* sharedName(const Evaluator& evaluator, const std::string& name) {
-	if (!evaluator.shared) {
-		return nullptr;
+	return readInScope(evaluator.shared, name);
+}
+
+const Value* outerName(Evaluator& evaluator, const std::string& name) {
+	if (const Value* found = readInScope(evaluator.tile, name)) {
+		return found;
 	}
-	const auto found = evaluator.shared->find(name);
-	return found == evaluator.shared->end() ? nullptr : &found->second;
+	if (const Value* found = findTop(evaluator, name)) {
+		return found;
+	}
+	return sharedName(evaluator, name);
+}
+
+bool readNoted(const Compiler& compiler, const std::string& name) {
+	return std::any_of(compiler.reads.begin(), compiler.reads.end(), [&](const OuterRead& read) {
+		return read.name == name;
+	});
+}
+
+void noteRead(Evaluator& evaluator, const std::string& name, const Value* value) {
+	if (!evaluator.compiler || readNoted(*evaluator.compiler, name)) {
+		return;
+	}
+
+	const OuterRead read = {
+		.name  = name,
+		.bound = value != nullptr,
+		.value = value ? *value : numberValue(0),
+	};
+
+	evaluator.compiler->reads.push_back(read);
+}
+
+bool readHolds(Evaluator& evaluator, const OuterRead& read) {
+	const Value* value = outerName(evaluator, read.name);
+	return value ? read.bound && sameValue(*value, read.value) : !read.bound;
+}
+
+bool readsHold(Evaluator& evaluator, const std::vector<OuterRead>& reads) {
+	return std::all_of(reads.begin(), reads.end(), [&](const OuterRead& read) {
+		return readHolds(evaluator, read);
+	});
+}
+
+bool tileBinding(const std::string& name) {
+	return name == "tile" || name == "tile_origin" || name == "tile_step";
 }
 
 std::optional<Value> builtinName(const Evaluator& evaluator, const std::string& name) {
@@ -470,75 +646,131 @@ std::optional<Value> builtinName(const Evaluator& evaluator, const std::string& 
 	return std::nullopt;
 }
 
-Value lookup(Evaluator& evaluator, const Expression& expression) {
+const Value* namedPlace(Evaluator& evaluator, const std::string& name) {
+	evaluator.timed = evaluator.timed || name == "time";
+	if (const Value* found = findLocal(evaluator, name)) {
+		return found;
+	}
+	const Value* outer = outerName(evaluator, name);
+	noteRead(evaluator, name, outer);
+	return outer;
+}
+
+Value unboundName(Evaluator& evaluator, const Expression& expression) {
 	const std::string& name = expression.text;
-	evaluator.timed         = evaluator.timed || name == "time";
-	if (const Value* found = findName(evaluator, name)) {
-		return *found;
-	}
-	if (const Value* found = evaluator.isolated ? nullptr : sharedName(evaluator, name)) {
-		return *found;
-	}
 	if (std::optional<Value> builtin = builtinName(evaluator, name)) {
 		return *builtin;
 	}
-	if (evaluator.isolated && (evaluator.scopes[0].contains(name) || sharedName(evaluator, name))) {
-		fail(expression.location, "a function sees only its parameters: '" + name + "'");
+	if (tileBinding(name)) {
+		fail(expression.location, name + " is known only inside tiles");
 	}
 	return Value {
 		.kind     = ValueKind::Word,
-		.number   = 0,
 		.slot     = -1,
-		.items    = {},
 		.material = 0,
+		.coat     = 0,
+		.number   = 0,
+		.items    = {},
+		.fields   = nullptr,
 		.pattern  = nullptr,
-		.word     = name,
+		.word     = &name,
+		.network  = nullptr,
 	};
 }
 
-void bind(Evaluator& evaluator, const std::string& name, const Value& value) {
-	if (Value* found = findName(evaluator, name)) {
-		*found = value;
+Value lookup(Evaluator& evaluator, const Expression& expression) {
+	if (const Value* found = namedPlace(evaluator, expression.text)) {
+		return *found;
+	}
+	return unboundName(evaluator, expression);
+}
+
+bool bindsLocally(const Evaluator& evaluator) {
+	return evaluator.isolated || evaluator.compiler;
+}
+
+Value* boundPlace(Evaluator& evaluator, const std::string& name) {
+	return bindsLocally(evaluator) ? findLocal(evaluator, name) : findName(evaluator, name);
+}
+
+void bind(Evaluator& evaluator, const std::string& name, Value value) {
+	if (Value* found = boundPlace(evaluator, name)) {
+		*found = std::move(value);
 		return;
 	}
-	const bool shared = !evaluator.isolated && sharedName(evaluator, name);
-	evaluator.scopes[shared ? 0 : evaluator.scopes.size() - 1][name] = value;
+	const bool local  = bindsLocally(evaluator);
+	const bool shared = !local && sharedName(evaluator, name);
+	if (shared || evaluator.blocks.empty()) {
+		evaluator.top[name] = std::move(value);
+		return;
+	}
+	bindLocal(evaluator, name, std::move(value));
 }
 
 Value evaluateExpression(Evaluator& evaluator, const Expression& expression);
 
 Opcode binaryOpcode(const std::string& symbol) {
-	static const std::unordered_map<std::string, Opcode> opcodes = {
-		{ "+", Opcode::Add },
-		{ "-", Opcode::Subtract },
-		{ "*", Opcode::Multiply },
-		{ "/", Opcode::Divide },
-		{ "<", Opcode::Less },
-		{ "<=", Opcode::LessEqual },
-		{ "==", Opcode::Equal },
-		{ "!=", Opcode::NotEqual },
-		{ "&&", Opcode::And },
-		{ "||", Opcode::Or },
-	};
+	switch (symbol[0]) {
+		case '+': return Opcode::Add;
+		case '-': return Opcode::Subtract;
+		case '*': return Opcode::Multiply;
+		case '/': return Opcode::Divide;
+		case '<': return symbol.size() == 1 ? Opcode::Less : Opcode::LessEqual;
+		case '=': return Opcode::Equal;
+		case '!': return Opcode::NotEqual;
+		case '&': return Opcode::And;
+		default: return Opcode::Or;
+	}
+}
 
-	return opcodes.at(symbol);
+bool decidesAlone(const Value& a, const std::string& symbol) {
+	if (!isKnown(a)) {
+		return false;
+	}
+	return (symbol[0] == '&' && a.number == 0) || (symbol[0] == '|' && a.number != 0);
+}
+
+bool readsOnly(const Expression& expression) {
+	return expression.kind == ExpressionKind::Number || expression.kind == ExpressionKind::Name;
+}
+
+const Value& operandValue(Evaluator& evaluator, const Expression& expression, std::optional<Value>& held) {
+	if (expression.kind != ExpressionKind::Name || failed()) {
+		return held.emplace(evaluateExpression(evaluator, expression));
+	}
+	if (const Value* found = namedPlace(evaluator, expression.text)) {
+		return *found;
+	}
+	return held.emplace(unboundName(evaluator, expression));
+}
+
+const Value& firstOperand(Evaluator& evaluator, const Expression& expression, std::optional<Value>& held) {
+	if (readsOnly(expression.items[1])) {
+		return operandValue(evaluator, expression.items[0], held);
+	}
+	return held.emplace(evaluateExpression(evaluator, expression.items[0]));
 }
 
 Value evaluateBinary(Evaluator& evaluator, const Expression& expression) {
-	const Value a = evaluateExpression(evaluator, expression.items[0]);
-	const Value b = evaluateExpression(evaluator, expression.items[1]);
-	if (expression.text == "..") {
+	std::optional<Value> heldA;
+	std::optional<Value> heldB;
+	const Value& a = firstOperand(evaluator, expression, heldA);
+	if (decidesAlone(a, expression.text)) {
+		return numberValue(a.number == 0 ? 0 : 1);
+	}
+	const Value& b = operandValue(evaluator, expression.items[1], heldB);
+	if (expression.text[0] == '.') {
 		fail(expression.location, "a range is only for 'for'");
 		return numberValue(0);
 	}
-	if (expression.text == ">" || expression.text == ">=") {
-		const Opcode opcode = expression.text == ">" ? Opcode::Less : Opcode::LessEqual;
+	if (expression.text[0] == '>') {
+		const Opcode opcode = expression.text.size() == 1 ? Opcode::Less : Opcode::LessEqual;
 
 		const Operation combined = {
 			.opcode   = opcode,
 			.a        = b,
 			.b        = a,
-			.c        = numberValue(0),
+			.c        = zeroValue(),
 			.location = expression.location,
 		};
 
@@ -549,7 +781,7 @@ Value evaluateBinary(Evaluator& evaluator, const Expression& expression) {
 		.opcode   = binaryOpcode(expression.text),
 		.a        = a,
 		.b        = b,
-		.c        = numberValue(0),
+		.c        = zeroValue(),
 		.location = expression.location,
 	};
 
@@ -562,29 +794,127 @@ Value evaluateUnary(Evaluator& evaluator, const Expression& expression) {
 	const Operation combined = {
 		.opcode   = expression.text == "-" ? Opcode::Negate : Opcode::Not,
 		.a        = a,
-		.b        = numberValue(0),
-		.c        = numberValue(0),
+		.b        = zeroValue(),
+		.c        = zeroValue(),
 		.location = expression.location,
 	};
 
 	return apply(evaluator, combined);
 }
 
+bool isRecord(const Value& value) {
+	return value.kind == ValueKind::Record;
+}
+
+bool matchingRecords(const Value& first, const Value& item, const Location& location) {
+	if (isRecord(item) != isRecord(first)) {
+		fail(location, "a list that mixes records and other kinds");
+		return false;
+	}
+	if (isRecord(item) && !sameFields(item, first)) {
+		fail(location, "a list that mixes records of different fields");
+		return false;
+	}
+	return true;
+}
+
+void checkRecords(const std::vector<Value>& items, const Location& location) {
+	if (std::none_of(items.begin(), items.end(), isRecord)) {
+		return;
+	}
+	for (const Value& item : items) {
+		if (!matchingRecords(items[0], item, location)) {
+			return;
+		}
+	}
+}
+
+Value checkedList(std::vector<Value> items, const Location& location) {
+	checkRecords(items, location);
+	return listValue(std::move(items));
+}
+
 Value evaluateList(Evaluator& evaluator, const Expression& expression) {
 	std::vector<Value> items;
+	items.reserve(expression.items.size());
 	for (const Expression& item : expression.items) {
 		items.push_back(evaluateExpression(evaluator, item));
 	}
-	return listValue(items);
+	return checkedList(std::move(items), expression.location);
+}
+
+Value evaluateRecord(Evaluator& evaluator, const Expression& expression) {
+	std::vector<Value> items;
+	items.reserve(expression.items.size());
+	for (const Expression& item : expression.items) {
+		items.push_back(evaluateExpression(evaluator, item));
+	}
+	return recordValue(expression.names, items);
+}
+
+const Value* itemPlace(const Value* list, const Value& index) {
+	if (!list || list->kind != ValueKind::List || !isKnown(index) || index.number < 0 || index.number != std::floor(index.number)) {
+		return nullptr;
+	}
+	return index.number < double(list->items.size()) ? &list->items[std::size_t(index.number)] : nullptr;
+}
+
+const Value* fieldPlace(const Value* record, const std::string& name) {
+	if (!record || !isRecord(*record)) {
+		return nullptr;
+	}
+	const std::vector<std::string>& fields = *record->fields;
+	const auto found                       = std::find(fields.begin(), fields.end(), name);
+	return found == fields.end() ? nullptr : &record->items[std::size_t(found - fields.begin())];
+}
+
+const Value* placeOf(Evaluator& evaluator, const Expression& expression) {
+	if (evaluator.compiler) {
+		return nullptr;
+	}
+	if (expression.kind == ExpressionKind::Name) {
+		return namedPlace(evaluator, expression.text);
+	}
+	if (expression.kind == ExpressionKind::Index) {
+		const Value index = evaluateExpression(evaluator, expression.items[1]);
+		return itemPlace(placeOf(evaluator, expression.items[0]), index);
+	}
+	if (expression.kind == ExpressionKind::Member) {
+		return fieldPlace(placeOf(evaluator, expression.items[0]), expression.text);
+	}
+	return nullptr;
+}
+
+Value memberOf(const Value& value, const Expression& member) {
+	if (isRecord(value)) {
+		return fieldOf(value, member.text, member.location);
+	}
+	return swizzle(value, member.text, member.location);
+}
+
+Value evaluateMember(Evaluator& evaluator, const Expression& member) {
+	if (const Value* value = placeOf(evaluator, member.items[0])) {
+		return memberOf(*value, member);
+	}
+	return memberOf(evaluateExpression(evaluator, member.items[0]), member);
 }
 
 Value evaluateIndex(Evaluator& evaluator, const Expression& expression) {
-	const Value list  = evaluateExpression(evaluator, expression.items[0]);
-	const Value index = evaluateExpression(evaluator, expression.items[1]);
-	return listItem(list, constantIndex(index, expression.items[1].location), expression.location);
+	if (evaluator.compiler) {
+		const Value list  = evaluateExpression(evaluator, expression.items[0]);
+		const Value index = evaluateExpression(evaluator, expression.items[1]);
+		return listItem(list, constantIndex(index, expression.items[1].location), expression.location);
+	}
+	const Value index        = evaluateExpression(evaluator, expression.items[1]);
+	const std::size_t number = failed() ? 0 : constantIndex(index, expression.items[1].location);
+	if (const Value* list = failed() ? nullptr : placeOf(evaluator, expression.items[0])) {
+		return listItem(*list, number, expression.location);
+	}
+	return listItem(evaluateExpression(evaluator, expression.items[0]), number, expression.location);
 }
 
 Value evaluateCall(Evaluator& evaluator, const Expression& expression);
+Value coatValue(Evaluator& evaluator, const Expression& call);
 Value evaluateComprehension(Evaluator& evaluator, const Expression& comprehension);
 
 Value evaluateExpression(Evaluator& evaluator, const Expression& expression) {
@@ -598,10 +928,11 @@ Value evaluateExpression(Evaluator& evaluator, const Expression& expression) {
 		case ExpressionKind::List: return evaluateList(evaluator, expression);
 		case ExpressionKind::Call: return evaluateCall(evaluator, expression);
 		case ExpressionKind::Index: return evaluateIndex(evaluator, expression);
-		case ExpressionKind::Member: return swizzle(evaluateExpression(evaluator, expression.items[0]), expression.text, expression.location);
+		case ExpressionKind::Member: return evaluateMember(evaluator, expression);
 		case ExpressionKind::Unary: return evaluateUnary(evaluator, expression);
 		case ExpressionKind::Binary: return evaluateBinary(evaluator, expression);
 		case ExpressionKind::Comprehension: return evaluateComprehension(evaluator, expression);
+		case ExpressionKind::Record: return evaluateRecord(evaluator, expression);
 	}
 
 	return numberValue(0);
@@ -629,13 +960,14 @@ Arguments evaluateArguments(Evaluator& evaluator, const Expression& call) {
 		.named      = {},
 	};
 
+	arguments.positional.reserve(call.items.size());
 	for (std::size_t i = 0; i < call.items.size(); ++i) {
-		const Value value = evaluateExpression(evaluator, call.items[i]);
+		Value value = evaluateExpression(evaluator, call.items[i]);
 		if (call.names[i].empty()) {
-			arguments.positional.push_back(value);
+			arguments.positional.push_back(std::move(value));
 			continue;
 		}
-		arguments.named[call.names[i]] = value;
+		arguments.named[call.names[i]] = std::move(value);
 	}
 	return arguments;
 }
@@ -656,7 +988,7 @@ void expectCount(const Call& call, std::size_t count) {
 
 Operation operationOf(const Call& call, Opcode opcode, std::size_t count) {
 	expectCount(call, count);
-	const Value zero = numberValue(0);
+	const Value& zero = zeroValue();
 	if (failed()) {
 		return Operation {
 			.opcode   = opcode,
@@ -675,6 +1007,27 @@ Operation operationOf(const Call& call, Opcode opcode, std::size_t count) {
 	};
 }
 
+const Value* unpickable(const Value& value) {
+	if (value.kind == ValueKind::Number) {
+		return nullptr;
+	}
+	if (value.kind != ValueKind::List) {
+		return &value;
+	}
+	for (const Value& item : value.items) {
+		if (const Value* found = unpickable(item)) {
+			return found;
+		}
+	}
+	return nullptr;
+}
+
+void expectPickable(const Value& value, const Location& location) {
+	if (const Value* found = unpickable(value); found && found->kind != ValueKind::Word) {
+		fail(location, std::string("select picks ") + kindName(found->kind) + " only by a condition known when the scene loads");
+	}
+}
+
 Value selectValue(Evaluator& evaluator, const Operation& operation) {
 	if (isKnown(operation.a)) {
 		return operation.a.number != 0 ? operation.b : operation.c;
@@ -691,12 +1044,20 @@ Value selectValue(Evaluator& evaluator, const Operation& operation) {
 	return apply(evaluator, selection);
 }
 
+Value pickedValue(Evaluator& evaluator, const Operation& operation) {
+	if (!isKnown(operation.a)) {
+		expectPickable(operation.b, operation.location);
+		expectPickable(operation.c, operation.location);
+	}
+	return selectValue(evaluator, operation);
+}
+
 Value clampValue(Evaluator& evaluator, const Operation& operation) {
 	const Operation larger = {
 		.opcode   = Opcode::Maximum,
 		.a        = operation.a,
 		.b        = operation.b,
-		.c        = numberValue(0),
+		.c        = zeroValue(),
 		.location = operation.location,
 	};
 
@@ -706,7 +1067,7 @@ Value clampValue(Evaluator& evaluator, const Operation& operation) {
 		.opcode   = Opcode::Minimum,
 		.a        = low,
 		.b        = operation.c,
-		.c        = numberValue(0),
+		.c        = zeroValue(),
 		.location = operation.location,
 	};
 
@@ -718,7 +1079,7 @@ Value mixValue(Evaluator& evaluator, const Operation& operation) {
 		.opcode   = Opcode::Subtract,
 		.a        = operation.b,
 		.b        = operation.a,
-		.c        = numberValue(0),
+		.c        = zeroValue(),
 		.location = operation.location,
 	};
 
@@ -728,7 +1089,7 @@ Value mixValue(Evaluator& evaluator, const Operation& operation) {
 		.opcode   = Opcode::Multiply,
 		.a        = span,
 		.b        = operation.c,
-		.c        = numberValue(0),
+		.c        = zeroValue(),
 		.location = operation.location,
 	};
 
@@ -738,7 +1099,7 @@ Value mixValue(Evaluator& evaluator, const Operation& operation) {
 		.opcode   = Opcode::Add,
 		.a        = operation.a,
 		.b        = step,
-		.c        = numberValue(0),
+		.c        = zeroValue(),
 		.location = operation.location,
 	};
 
@@ -752,7 +1113,7 @@ Value normalizeValue(Evaluator& evaluator, const Operation& operation) {
 		.opcode   = Opcode::Divide,
 		.a        = operation.a,
 		.b        = length,
-		.c        = numberValue(0),
+		.c        = zeroValue(),
 		.location = operation.location,
 	};
 
@@ -767,22 +1128,59 @@ Value countValue(const Operation& operation) {
 	return numberValue(double(operation.a.items.size()));
 }
 
-std::optional<Opcode> elementwiseOpcode(const std::string& name) {
-	static const std::unordered_map<std::string, Opcode> opcodes = {
-		{ "sqrt", Opcode::SquareRoot },
-		{ "abs", Opcode::Absolute },
-		{ "floor", Opcode::Floor },
-		{ "sin", Opcode::Sine },
-		{ "cos", Opcode::Cosine },
-		{ "sign", Opcode::Sign },
-		{ "atan2", Opcode::ArcTangent },
-		{ "pow", Opcode::Power },
-		{ "min", Opcode::Minimum },
-		{ "max", Opcode::Maximum },
-	};
+Value appendedList(Value list, const std::vector<Value>& added, const Location& location) {
+	if (added.size() != 1) {
+		fail(location, "append takes 2 arguments");
+		return numberValue(0);
+	}
+	if (list.kind != ValueKind::List) {
+		fail(location, "append takes a list and a value");
+		return numberValue(0);
+	}
+	if (!list.items.empty() && !matchingRecords(list.items[0], added[0], location)) {
+		return numberValue(0);
+	}
+	list.items.push_back(added[0]);
+	return list;
+}
 
-	const auto found = opcodes.find(name);
-	return found == opcodes.end() ? std::nullopt : std::optional<Opcode>(found->second);
+bool joinable(const Value& list, const Value& more, const Location& location) {
+	if (more.kind != ValueKind::List) {
+		fail(location, "join takes lists");
+		return false;
+	}
+	return list.items.empty() || more.items.empty() || matchingRecords(list.items[0], more.items[0], location);
+}
+
+Value joinedList(Value list, const std::vector<Value>& added, const Location& location) {
+	if (list.kind != ValueKind::List) {
+		fail(location, "join takes lists");
+		return numberValue(0);
+	}
+	for (const Value& more : added) {
+		if (!joinable(list, more, location)) {
+			return numberValue(0);
+		}
+		list.items.insert(list.items.end(), more.items.begin(), more.items.end());
+	}
+	return list;
+}
+
+Value grownList(const Expression& call, Value list, const std::vector<Value>& added) {
+	if (call.text == "append") {
+		return appendedList(std::move(list), added, call.location);
+	}
+	return joinedList(std::move(list), added, call.location);
+}
+
+Value grownCall(const Call& call) {
+	const std::vector<Value>& positional = call.arguments.positional;
+	if (positional.empty() || !call.arguments.named.empty()) {
+		fail(call.expression.location, call.expression.text == "append" ? "append takes 2 arguments" : "join takes lists");
+		return numberValue(0);
+	}
+	const std::vector<Value> added(positional.begin() + 1, positional.end());
+	return grownList(call.expression, positional[0], added);
 }
 
 std::size_t elementwiseCount(Opcode opcode) {
@@ -796,11 +1194,6 @@ double knownOf(const Value& value, const Location& location) {
 	}
 	return value.number;
 }
-
-struct TimedStop {
-	double time;
-	std::vector<double> values;
-};
 
 bool shapedStop(const Value& stop, const std::vector<TimedStop>& read) {
 	const bool listed = stop.kind == ValueKind::List && stop.items.size() >= 2;
@@ -904,61 +1297,439 @@ Value numbersValue(const std::vector<double>& numbers) {
 		return numberValue(numbers[0]);
 	}
 	std::vector<Value> items;
+	items.reserve(numbers.size());
 	for (const double number : numbers) {
 		items.push_back(numberValue(number));
 	}
-	return listValue(items);
+	return listValue(std::move(items));
 }
 
-Value stopsValue(const Call& call, bool smooth) {
+Value applied(Evaluator& evaluator, Opcode opcode, const Value& a, const Value& b) {
+	const Operation operation = {
+		.opcode   = opcode,
+		.a        = a,
+		.b        = b,
+		.c        = zeroValue(),
+		.location = {},
+	};
+
+	return apply(evaluator, operation);
+}
+
+Value stopShare(Evaluator& evaluator, const TimedStop& from, const TimedStop& to, const Value& t) {
+	if (from.time == to.time) {
+		return applied(evaluator, Opcode::LessEqual, numberValue(from.time), t);
+	}
+	const Value since = applied(evaluator, Opcode::Subtract, t, numberValue(from.time));
+	const Value share = applied(evaluator, Opcode::Divide, since, numberValue(to.time - from.time));
+	return applied(evaluator, Opcode::Minimum, applied(evaluator, Opcode::Maximum, share, numberValue(0)), numberValue(1));
+}
+
+Value scaledStop(const std::vector<double>& a, const std::vector<double>& b, double scale) {
+	std::vector<double> scaled;
+	for (std::size_t i = 0; i < b.size(); ++i) {
+		scaled.push_back((b[i] - a[i]) * scale);
+	}
+	return numbersValue(scaled);
+}
+
+Value hermiteRise(Evaluator& evaluator, const std::vector<TimedStop>& stops, std::size_t at, const Value& s) {
+	const double span              = stops[at + 1].time - stops[at].time;
+	const std::vector<double> flat = std::vector<double>(stops[at].values.size(), 0.0);
+	const Value squared            = applied(evaluator, Opcode::Multiply, s, s);
+	const Value less               = applied(evaluator, Opcode::Subtract, s, numberValue(1));
+	const Value rise               = applied(evaluator, Opcode::Subtract, numberValue(3), applied(evaluator, Opcode::Multiply, numberValue(2), s));
+	const Value toward             = applied(evaluator, Opcode::Multiply, scaledStop(stops[at].values, stops[at + 1].values, 1), applied(evaluator, Opcode::Multiply, squared, rise));
+	const Value leaving            = applied(evaluator, Opcode::Multiply, scaledStop(flat, slopeAt(stops, at), span), applied(evaluator, Opcode::Multiply, s, applied(evaluator, Opcode::Multiply, less, less)));
+	const Value arriving           = applied(evaluator, Opcode::Multiply, scaledStop(flat, slopeAt(stops, at + 1), span), applied(evaluator, Opcode::Multiply, squared, less));
+	return applied(evaluator, Opcode::Add, applied(evaluator, Opcode::Add, toward, leaving), arriving);
+}
+
+Value stopRise(Evaluator& evaluator, const std::vector<TimedStop>& stops, std::size_t at, const Value& t, bool smooth) {
+	const Value share = stopShare(evaluator, stops[at], stops[at + 1], t);
+	if (smooth && stops[at].time != stops[at + 1].time) {
+		return hermiteRise(evaluator, stops, at, share);
+	}
+	return applied(evaluator, Opcode::Multiply, scaledStop(stops[at].values, stops[at + 1].values, 1), share);
+}
+
+Value compiledStops(Evaluator& evaluator, const std::vector<TimedStop>& stops, const Value& t, bool smooth) {
+	Value sum = numbersValue(stops[0].values);
+	for (std::size_t at = 0; at + 1 < stops.size(); ++at) {
+		sum = applied(evaluator, Opcode::Add, sum, stopRise(evaluator, stops, at, t, smooth));
+	}
+	return sum;
+}
+
+Value stopsValue(Evaluator& evaluator, const Call& call, bool smooth) {
 	expectCount(call, 2);
 	if (failed()) {
 		return numberValue(0);
 	}
 	const std::vector<TimedStop> stops = timedStops(call.arguments.positional[0], call.expression.location);
-	const double t                     = knownOf(call.arguments.positional[1], call.expression.location);
+	const Value& t                     = call.arguments.positional[1];
+	if (!failed() && t.kind == ValueKind::Number && t.slot >= 0) {
+		return compiledStops(evaluator, stops, t, smooth);
+	}
+	const double at = knownOf(t, call.expression.location);
 	if (failed()) {
 		return numberValue(0);
 	}
-	return numbersValue(stopsAt(stops, t, smooth));
+	return numbersValue(stopsAt(stops, at, smooth));
 }
 
-std::optional<Value> evaluateMath(Evaluator& evaluator, const Call& call) {
-	const std::string& name = call.expression.text;
-	if (std::optional<Opcode> opcode = elementwiseOpcode(name)) {
-		return apply(evaluator, operationOf(call, *opcode, elementwiseCount(*opcode)));
+double loadedNumber(const Value& value, const Call& call) {
+	if (value.kind == ValueKind::Number && value.slot >= 0) {
+		fail(call.expression.location, call.expression.text + " is known only when the scene loads");
 	}
-	if (name == "clamp") {
-		return clampValue(evaluator, operationOf(call, Opcode::Add, 3));
+	expectNumber(value, call.expression.location);
+	return value.number;
+}
+
+std::vector<double> loadedNumbers(const Value& value, const Call& call) {
+	if (value.kind != ValueKind::List) {
+		return { loadedNumber(value, call) };
 	}
-	if (name == "mix") {
-		return mixValue(evaluator, operationOf(call, Opcode::Add, 3));
+	std::vector<double> numbers;
+	for (const Value& item : value.items) {
+		numbers.push_back(loadedNumber(item, call));
 	}
-	if (name == "select") {
-		return selectValue(evaluator, operationOf(call, Opcode::Select, 3));
+	return numbers;
+}
+
+std::uint64_t hashedWith(std::uint64_t hash, double number) {
+	const std::uint64_t bits = number == 0 ? 0 : std::bit_cast<std::uint64_t>(number);
+	return math::mixedBits(hash ^ bits);
+}
+
+Value hashValue(const Call& call) {
+	if (call.arguments.positional.empty() || !call.arguments.named.empty()) {
+		fail(call.expression.location, "hash takes numbers and vectors");
+		return numberValue(0);
 	}
-	if (name == "dot") {
-		return dotValue(evaluator, operationOf(call, Opcode::Add, 2));
+	std::uint64_t hash = 0;
+	for (const Value& argument : call.arguments.positional) {
+		for (const double number : loadedNumbers(argument, call)) {
+			hash = hashedWith(hash, number);
+		}
 	}
-	if (name == "cross") {
-		return crossValue(evaluator, operationOf(call, Opcode::Add, 2));
+	return numberValue(failed() ? 0 : math::unitOf(hash));
+}
+
+struct NoiseCell {
+	std::vector<double> corner;
+	std::vector<double> fade;
+	std::uint64_t seed;
+};
+
+double quinticFade(double t) {
+	return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+double cornerNoise(const NoiseCell& cell, std::size_t corner) {
+	std::uint64_t hash = cell.seed;
+	double weight      = 1;
+	for (std::size_t i = 0; i < cell.corner.size(); ++i) {
+		const bool upper = ((corner >> i) & 1) != 0;
+		hash             = hashedWith(hash, cell.corner[i] + (upper ? 1 : 0));
+		weight *= upper ? cell.fade[i] : 1 - cell.fade[i];
 	}
-	if (name == "length") {
-		return lengthValue(evaluator, operationOf(call, Opcode::Add, 1).a, call.expression.location);
+	return weight * (2 * math::unitOf(hash) - 1);
+}
+
+double latticeNoise(const std::vector<double>& p, std::uint64_t seed) {
+	NoiseCell cell = {
+		.corner = {},
+		.fade   = {},
+		.seed   = seed,
+	};
+
+	for (const double x : p) {
+		const double corner = std::floor(x);
+		cell.corner.push_back(corner);
+		cell.fade.push_back(quinticFade(x - corner));
 	}
-	if (name == "normalize") {
-		return normalizeValue(evaluator, operationOf(call, Opcode::Add, 1));
+	double sum = 0;
+	for (std::size_t corner = 0; corner < (std::size_t(1) << p.size()); ++corner) {
+		sum += cornerNoise(cell, corner);
 	}
-	if (name == "all" || name == "any") {
-		return foldList(evaluator, operationOf(call, name == "all" ? Opcode::And : Opcode::Or, 1));
+	return sum;
+}
+
+double fractalNoise(const std::vector<double>& p, std::size_t octaves) {
+	std::vector<double> q = p;
+	double sum            = 0;
+	double amplitude      = 1;
+	double total          = 0;
+	for (std::size_t octave = 0; octave < octaves; ++octave) {
+		sum += amplitude * latticeNoise(q, octave);
+		total += amplitude;
+		amplitude *= 0.5;
+		for (double& x : q) {
+			x *= 2;
+		}
 	}
-	if (name == "count") {
-		return countValue(operationOf(call, Opcode::Add, 1));
+	return sum / total;
+}
+
+std::vector<double> noisePoint(const Call& call) {
+	const std::vector<double> p = loadedNumbers(positional(call, 0), call);
+	if (!failed() && p.size() != 2 && p.size() != 3) {
+		fail(call.expression.location, call.expression.text + " takes a vector of 2 or 3 numbers");
 	}
-	if (name == "linear" || name == "smooth") {
-		return stopsValue(call, name == "smooth");
+	return p;
+}
+
+Value noiseValue(const Call& call) {
+	expectCount(call, 1);
+	const std::vector<double> p = noisePoint(call);
+	return numberValue(failed() ? 0 : latticeNoise(p, 0));
+}
+
+std::size_t octaveCount(const Call& call) {
+	const double octaves = loadedNumber(positional(call, 1), call);
+	if (!failed() && (octaves < 1 || octaves != std::floor(octaves))) {
+		fail(call.expression.location, "fbm's octaves are a whole number of 1 or more");
 	}
-	return std::nullopt;
+	return failed() ? 0 : std::size_t(octaves);
+}
+
+Value fbmValue(const Call& call) {
+	expectCount(call, 2);
+	const std::vector<double> p = noisePoint(call);
+	const std::size_t octaves   = octaveCount(call);
+	return numberValue(failed() ? 0 : fractalNoise(p, octaves));
+}
+
+std::string eyeReadName(double step) {
+	char text[40];
+	std::snprintf(text, sizeof(text), "eye@%.17g", step);
+	return text;
+}
+
+std::optional<double> eyeReadStep(const std::string& name) {
+	if (!name.starts_with("eye@")) {
+		return std::nullopt;
+	}
+	return std::strtod(name.c_str() + 4, nullptr);
+}
+
+double snappedAxis(double x, double step) {
+	return (std::floor(x / step) + 0.5) * step;
+}
+
+math::Vector snappedEye(const math::Vector& eye, double step) {
+	return { snappedAxis(eye.x, step), snappedAxis(eye.y, step), snappedAxis(eye.z, step) };
+}
+
+double eyeStep(const Call& call) {
+	expectCount(call, 1);
+	const double step = loadedNumber(positional(call, 0), call);
+	if (!failed() && !(step > 0 && std::isfinite(step))) {
+		fail(call.expression.location, "eye's step is a number above 0");
+	}
+	return step;
+}
+
+Value eyeValue(Evaluator& evaluator, const Call& call) {
+	if (evaluator.compiler) {
+		fail(call.expression.location, "eye is not known in a surface");
+		return numberValue(0);
+	}
+	const double step = eyeStep(call);
+	if (!failed() && !evaluator.eye) {
+		fail(call.expression.location, "eye reads the camera, and no camera block comes before it");
+	}
+	if (failed()) {
+		return numberValue(0);
+	}
+	if (evaluator.tiled) {
+		evaluator.reads.insert(eyeReadName(step));
+	}
+	const math::Vector snapped = snappedEye(*evaluator.eye, step);
+	return numbersValue({ snapped.x, snapped.y, snapped.z });
+}
+
+std::string bandReadName(double step, const std::vector<double>& point, const std::vector<double>& radii) {
+	std::string name = "band@";
+	char text[40];
+	std::snprintf(text, sizeof(text), "%.17g", step);
+	name += text;
+	for (const std::vector<double>& part : { point, radii }) {
+		name += "@";
+		for (const double number : part) {
+			std::snprintf(text, sizeof(text), "%.17g,", number);
+			name += text;
+		}
+	}
+	return name;
+}
+
+std::vector<double> readNumbers(const char*& text) {
+	std::vector<double> numbers;
+	while (*text != '\0' && *text != '@') {
+		char* end = nullptr;
+		numbers.push_back(std::strtod(text, &end));
+		text = *end == ',' ? end + 1 : end;
+	}
+	text = *text == '@' ? text + 1 : text;
+	return numbers;
+}
+
+std::optional<double> bandReadStep(const std::string& name) {
+	if (!name.starts_with("band@")) {
+		return std::nullopt;
+	}
+	return std::strtod(name.c_str() + 5, nullptr);
+}
+
+std::size_t bandIndex(const std::vector<double>& point, const std::vector<double>& radii, const math::Vector& snapped) {
+	const double dx       = point[0] - snapped.x;
+	const double dy       = point[1] - snapped.y;
+	const double dz       = point.size() == 3 ? point[2] - snapped.z : 0;
+	const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+	return std::size_t(std::count_if(radii.begin(), radii.end(), [&](double radius) {
+		return distance >= radius;
+	}));
+}
+
+std::size_t bandOfRead(const std::string& name, const math::Vector& eye, const math::Vector& corner) {
+	const char* text                = name.c_str() + 5;
+	const double step               = std::strtod(text, nullptr);
+	text                            = std::strchr(text, '@') + 1;
+	std::vector<double> point       = readNumbers(text);
+	const std::vector<double> radii = readNumbers(text);
+	const double offsets[3]         = { corner.x, corner.y, corner.z };
+	for (std::size_t axis = 0; axis < point.size(); ++axis) {
+		point[axis] += offsets[axis];
+	}
+	return bandIndex(point, radii, snappedEye(eye, step));
+}
+
+std::vector<double> pointInTile(const Evaluator& evaluator, std::vector<double> point) {
+	const Value* corner = readInScope(evaluator.tile, "tile_origin");
+	for (std::size_t axis = 0; corner && axis < point.size(); ++axis) {
+		point[axis] -= corner->items[axis].number;
+	}
+	return point;
+}
+
+bool risingNumbers(const std::vector<double>& numbers) {
+	for (std::size_t i = 1; i < numbers.size(); ++i) {
+		if (!(numbers[i] > numbers[i - 1])) {
+			return false;
+		}
+	}
+	return true;
+}
+
+Value bandValue(Evaluator& evaluator, const Call& call) {
+	if (evaluator.compiler) {
+		fail(call.expression.location, "eye_band is not known in a surface");
+		return numberValue(0);
+	}
+	expectCount(call, 3);
+	if (failed()) {
+		return numberValue(0);
+	}
+	const std::vector<double> point = loadedNumbers(positional(call, 0), call);
+	const std::vector<double> radii = loadedNumbers(positional(call, 1), call);
+	const double step               = loadedNumber(positional(call, 2), call);
+	if (!failed() && (point.size() < 2 || point.size() > 3 || positional(call, 1).kind != ValueKind::List || !risingNumbers(radii) || !(step > 0 && std::isfinite(step)))) {
+		fail(call.expression.location, "eye_band takes a point of 2 or 3 numbers, a list of rising radii and a step above 0");
+	}
+	if (!failed() && !evaluator.eye) {
+		fail(call.expression.location, "eye_band reads the camera, and no camera block comes before it");
+	}
+	if (failed()) {
+		return numberValue(0);
+	}
+	if (evaluator.tiled) {
+		evaluator.reads.insert(bandReadName(step, pointInTile(evaluator, point), radii));
+	}
+	return numberValue(double(bandIndex(point, radii, snappedEye(*evaluator.eye, step))));
+}
+
+std::uint64_t valueKey(const Value& value);
+
+bool namedOnly(const Call& call, const std::string& name) {
+	return call.arguments.named.empty() || (call.arguments.named.size() == 1 && call.arguments.named.contains(name));
+}
+
+double networkSpacing(const Call& call) {
+	const auto found = call.arguments.named.find("spacing");
+	return found == call.arguments.named.end() ? 8 : loadedNumber(found->second, call);
+}
+
+Value madeNetwork(const Call& call) {
+	if (call.arguments.positional.size() != 1 || !namedOnly(call, "spacing")) {
+		fail(call.expression.location, "network takes a list of lines and a spacing");
+		return numberValue(0);
+	}
+
+	const NetworkSource source = {
+		.lines    = call.arguments.positional[0],
+		.spacing  = networkSpacing(call),
+		.key      = valueKey(call.arguments.positional[0]),
+		.location = call.expression.location,
+	};
+
+	const std::shared_ptr<const Network> network = failed() ? nullptr : builtNetwork(source);
+	return network ? networkValue(network) : numberValue(0);
+}
+
+bool networkCall(const Call& call, std::size_t least, std::size_t most) {
+	const std::vector<Value>& positional = call.arguments.positional;
+	const bool counted                   = positional.size() >= least && positional.size() <= most && call.arguments.named.empty();
+	return counted && positional[0].kind == ValueKind::Network;
+}
+
+std::vector<double> networkPoint(const Value& value, const Call& call) {
+	if (value.kind != ValueKind::List || (value.items.size() != 2 && value.items.size() != 3)) {
+		return {};
+	}
+	return loadedNumbers(value, call);
+}
+
+Value nearestCall(const Call& call) {
+	const std::vector<Value>& positional = call.arguments.positional;
+	const bool shaped                    = networkCall(call, 2, 3);
+	const std::vector<double> q          = shaped ? networkPoint(positional[1], call) : std::vector<double> {};
+	const double reach                   = shaped && positional.size() == 3 ? loadedNumber(positional[2], call) : std::numeric_limits<double>::infinity();
+	if (!failed() && q.empty()) {
+		fail(call.expression.location, "nearest takes a network, a point of 2 or 3 numbers and a reach");
+	}
+	if (failed()) {
+		return numberValue(0);
+	}
+
+	const NetworkQuery query = {
+		.x     = q[0],
+		.y     = q[1],
+		.reach = reach,
+	};
+
+	return nearestValue(*positional[0].network, query);
+}
+
+Value withinCall(const Call& call) {
+	const std::vector<Value>& positional = call.arguments.positional;
+	const bool shaped                    = networkCall(call, 3, 3);
+	const std::vector<double> a          = shaped ? networkPoint(positional[1], call) : std::vector<double> {};
+	const std::vector<double> b          = shaped ? networkPoint(positional[2], call) : std::vector<double> {};
+	if (!failed() && (a.empty() || b.empty())) {
+		fail(call.expression.location, "within takes a network and two corners of 2 or 3 numbers");
+	}
+	if (failed()) {
+		return numberValue(0);
+	}
+
+	const NetworkBox box = {
+		.lower = { std::min(a[0], b[0]), std::min(a[1], b[1]) },
+		.upper = { std::max(a[0], b[0]), std::max(a[1], b[1]) },
+	};
+
+	return withinValue(*positional[0].network, box);
 }
 
 std::vector<float> floats(const Value& value, std::size_t count, const Location& location) {
@@ -1085,40 +1856,40 @@ void readMaterialField(Material& material, const MaterialField& field) {
 	fail(field.location, "a material has no field '" + name + "'");
 }
 
-std::optional<MaterialKind> materialKind(const std::string& name) {
-	static const std::unordered_map<std::string, MaterialKind> kinds = {
-		{ "matte", MaterialKind::Matte },
-		{ "plastic", MaterialKind::Plastic },
-		{ "metal", MaterialKind::Metal },
-		{ "glass", MaterialKind::Glass },
-	};
+bool makesMaterial(Builtin builtin) {
+	return builtin == Builtin::Matte || builtin == Builtin::Plastic || builtin == Builtin::Metal || builtin == Builtin::Glass;
+}
 
-	const auto found = kinds.find(name);
-	return found == kinds.end() ? std::nullopt : std::optional<MaterialKind>(found->second);
+MaterialKind materialKind(Builtin builtin) {
+	switch (builtin) {
+		case Builtin::Plastic: return MaterialKind::Plastic;
+		case Builtin::Metal: return MaterialKind::Metal;
+		case Builtin::Glass: return MaterialKind::Glass;
+		default: return MaterialKind::Matte;
+	}
 }
 
 Value pushMaterial(Evaluator& evaluator, const Material& material) {
 	evaluator.looks.materials.push_back(material);
 	return Value {
 		.kind     = ValueKind::Material,
-		.number   = 0,
 		.slot     = -1,
-		.items    = {},
 		.material = std::uint32_t(evaluator.looks.materials.size() - 1),
+		.coat     = 0,
+		.number   = 0,
+		.items    = {},
+		.fields   = nullptr,
 		.pattern  = nullptr,
-		.word     = {},
+		.word     = nullptr,
+		.network  = nullptr,
 	};
 }
 
-std::optional<Value> evaluateMaterial(Evaluator& evaluator, const Call& call) {
-	const std::optional<MaterialKind> kind = materialKind(call.expression.text);
-	if (!kind) {
-		return std::nullopt;
-	}
+Value madeMaterial(Evaluator& evaluator, const Call& call) {
 	refusedInTiles(evaluator, call.expression.location, "make a material");
 
 	Material material = {
-		.kind   = *kind,
+		.kind   = materialKind(call.expression.builtin),
 		.albedo = Albedo {
 			.stops     = { 1, 1, 1 },
 			.program   = -1,
@@ -1189,16 +1960,6 @@ Value rampPattern(const Call& call) {
 	return patternValue(ramp);
 }
 
-std::optional<Value> evaluatePatternCall(const Call& call) {
-	if (call.expression.text == "world") {
-		return worldPattern(call);
-	}
-	if (call.expression.text == "ramp") {
-		return rampPattern(call);
-	}
-	return std::nullopt;
-}
-
 void runBlock(Evaluator& evaluator, const std::vector<Statement>& body, const Context& context);
 
 void bindParameters(Evaluator& evaluator, const Invocation& call) {
@@ -1208,19 +1969,19 @@ void bindParameters(Evaluator& evaluator, const Invocation& call) {
 		return;
 	}
 	for (std::size_t i = 0; i < call.arguments.size(); ++i) {
-		evaluator.scopes.back()[definition.names[i]] = call.arguments[i];
+		bindLocal(evaluator, definition.names[i], std::move(call.arguments[i]));
 	}
 }
 
 void runDefinition(Evaluator& evaluator, const Invocation& call) {
 	const std::size_t savedBase = evaluator.base;
 	const bool savedIsolated    = evaluator.isolated;
-	evaluator.base              = evaluator.scopes.size();
+	evaluator.base              = evaluator.blocks.size();
 	evaluator.isolated          = call.definition.kind == StatementKind::Function;
-	evaluator.scopes.push_back(Scope {});
+	openBlock(evaluator);
 	bindParameters(evaluator, call);
 	runBlock(evaluator, call.definition.body, call.context);
-	evaluator.scopes.resize(evaluator.base);
+	closeBlock(evaluator);
 	evaluator.base     = savedBase;
 	evaluator.isolated = savedIsolated;
 }
@@ -1233,7 +1994,7 @@ Value inlineFunction(Evaluator& evaluator, const Invocation& call) {
 		fail(call.definition.location, call.definition.text + " never returns");
 	}
 	evaluator.returned = savedReturned;
-	return evaluator.result;
+	return std::move(evaluator.result);
 }
 
 bool isComputed(const Statement& definition) {
@@ -1249,22 +2010,22 @@ const Statement* findFunction(const Evaluator& evaluator, const Expression& call
 	return found->second;
 }
 
-Value callFunction(Evaluator& evaluator, const Call& call) {
-	const Statement* found = findFunction(evaluator, call.expression);
+Value callFunction(Evaluator& evaluator, const Expression& call, Arguments arguments) {
+	const Statement* found = findFunction(evaluator, call);
 	if (!found) {
 		return numberValue(0);
 	}
 	const Statement& function = *found;
-	if (!call.arguments.named.empty()) {
-		fail(call.expression.location, function.text + " takes positional arguments");
+	if (!arguments.named.empty()) {
+		fail(call.location, function.text + " takes positional arguments");
 		return numberValue(0);
 	}
 	if (evaluator.compiler || function.kind == StatementKind::Function) {
 		const Invocation invocation = {
 			.definition = function,
-			.arguments  = call.arguments.positional,
+			.arguments  = arguments.positional,
 			.context    = rootContext(),
-			.location   = call.expression.location,
+			.location   = call.location,
 		};
 
 		return inlineFunction(evaluator, invocation);
@@ -1272,8 +2033,8 @@ Value callFunction(Evaluator& evaluator, const Call& call) {
 
 	const Pattern pattern = {
 		.function  = &function,
-		.arguments = call.arguments.positional,
-		.location  = call.expression.location,
+		.arguments = std::move(arguments.positional),
+		.location  = call.location,
 		.world     = false,
 		.stops     = {},
 	};
@@ -1281,24 +2042,88 @@ Value callFunction(Evaluator& evaluator, const Call& call) {
 	return patternValue(pattern);
 }
 
+Value elementwise(Evaluator& evaluator, const Call& call, Opcode opcode) {
+	return apply(evaluator, operationOf(call, opcode, elementwiseCount(opcode)));
+}
+
+Value printedValue(const Call& call) {
+	fail(call.expression.location, "print stands alone as a statement");
+	return numberValue(0);
+}
+
+Value builtinValue(Evaluator& evaluator, const Call& call) {
+	switch (call.expression.builtin) {
+		case Builtin::SquareRoot: return elementwise(evaluator, call, Opcode::SquareRoot);
+		case Builtin::Absolute: return elementwise(evaluator, call, Opcode::Absolute);
+		case Builtin::Floor: return elementwise(evaluator, call, Opcode::Floor);
+		case Builtin::Sine: return elementwise(evaluator, call, Opcode::Sine);
+		case Builtin::Cosine: return elementwise(evaluator, call, Opcode::Cosine);
+		case Builtin::Sign: return elementwise(evaluator, call, Opcode::Sign);
+		case Builtin::ArcTangent: return elementwise(evaluator, call, Opcode::ArcTangent);
+		case Builtin::Power: return elementwise(evaluator, call, Opcode::Power);
+		case Builtin::Minimum: return elementwise(evaluator, call, Opcode::Minimum);
+		case Builtin::Maximum: return elementwise(evaluator, call, Opcode::Maximum);
+		case Builtin::Clamp: return clampValue(evaluator, operationOf(call, Opcode::Add, 3));
+		case Builtin::Mix: return mixValue(evaluator, operationOf(call, Opcode::Add, 3));
+		case Builtin::Select: return pickedValue(evaluator, operationOf(call, Opcode::Select, 3));
+		case Builtin::Dot: return dotValue(evaluator, operationOf(call, Opcode::Add, 2));
+		case Builtin::Cross: return crossValue(evaluator, operationOf(call, Opcode::Add, 2));
+		case Builtin::Length: return lengthValue(evaluator, operationOf(call, Opcode::Add, 1).a, call.expression.location);
+		case Builtin::Normalize: return normalizeValue(evaluator, operationOf(call, Opcode::Add, 1));
+		case Builtin::All: return foldList(evaluator, operationOf(call, Opcode::And, 1));
+		case Builtin::Any: return foldList(evaluator, operationOf(call, Opcode::Or, 1));
+		case Builtin::Count: return countValue(operationOf(call, Opcode::Add, 1));
+		case Builtin::Append: return grownCall(call);
+		case Builtin::Join: return grownCall(call);
+		case Builtin::Linear: return stopsValue(evaluator, call, false);
+		case Builtin::Smooth: return stopsValue(evaluator, call, true);
+		case Builtin::Hash: return hashValue(call);
+		case Builtin::Noise: return noiseValue(call);
+		case Builtin::FractalNoise: return fbmValue(call);
+		case Builtin::Eye: return eyeValue(evaluator, call);
+		case Builtin::EyeBand: return bandValue(evaluator, call);
+		case Builtin::Network: return madeNetwork(call);
+		case Builtin::Nearest: return nearestCall(call);
+		case Builtin::Within: return withinCall(call);
+		case Builtin::Matte: return madeMaterial(evaluator, call);
+		case Builtin::Plastic: return madeMaterial(evaluator, call);
+		case Builtin::Metal: return madeMaterial(evaluator, call);
+		case Builtin::Glass: return madeMaterial(evaluator, call);
+		case Builtin::World: return worldPattern(call);
+		case Builtin::Ramp: return rampPattern(call);
+		case Builtin::Print: return printedValue(call);
+		case Builtin::None: break;
+	}
+
+	return numberValue(0);
+}
+
+const Value* countedPlace(Evaluator& evaluator, const Expression& call) {
+	if (call.builtin != Builtin::Count || call.items.size() != 1 || !call.names[0].empty()) {
+		return nullptr;
+	}
+	const Value* list = placeOf(evaluator, call.items[0]);
+	return list && list->kind == ValueKind::List ? list : nullptr;
+}
+
 Value evaluateCall(Evaluator& evaluator, const Expression& expression) {
-	const Arguments arguments = evaluateArguments(evaluator, expression);
+	if (expression.text == "coat") {
+		return coatValue(evaluator, expression);
+	}
+	if (const Value* list = countedPlace(evaluator, expression)) {
+		return numberValue(double(list->items.size()));
+	}
+	Arguments arguments = evaluateArguments(evaluator, expression);
+	if (expression.builtin == Builtin::None) {
+		return callFunction(evaluator, expression, std::move(arguments));
+	}
 
 	const Call call = {
 		.arguments  = arguments,
 		.expression = expression,
 	};
 
-	if (std::optional<Value> math = evaluateMath(evaluator, call)) {
-		return *math;
-	}
-	if (std::optional<Value> material = evaluateMaterial(evaluator, call)) {
-		return *material;
-	}
-	if (std::optional<Value> pattern = evaluatePatternCall(call)) {
-		return *pattern;
-	}
-	return callFunction(evaluator, call);
+	return builtinValue(evaluator, call);
 }
 
 struct Affine {
@@ -1337,8 +2162,9 @@ std::vector<double> vector3(const Value& value, const Location& location) {
 }
 
 std::vector<double> namedAxis(const Value& value, const Location& location) {
-	const std::size_t index = std::string("xyz").find(value.word);
-	if (value.word.size() != 1 || index == std::string::npos) {
+	const std::string& word = wordOf(value);
+	const std::size_t index = std::string("xyz").find(word);
+	if (word.size() != 1 || index == std::string::npos) {
 		fail(location, "an axis is x, y, z or a vector");
 		return { 0, 0, 1 };
 	}
@@ -1521,7 +2347,7 @@ Relief reliefOf(const Value& value, const Location& location) {
 		{ "streak", Relief::Streak },
 	};
 
-	const auto found = reliefs.find(value.word);
+	const auto found = reliefs.find(wordOf(value));
 	if (value.kind != ValueKind::Word || found == reliefs.end()) {
 		fail(location, "a bump's relief is grain, pits, streak or a surface");
 		return Relief::Grain;
@@ -1635,6 +2461,8 @@ Coat withMask(Evaluator& evaluator, const Coat& base, const Expression& expressi
 	return coat;
 }
 
+constexpr const char* coatForms = "coat takes an effect and a mask, a bump alone, or a coat";
+
 bool unnamedItems(const Expression& modifier) {
 	return std::all_of(modifier.names.begin(), modifier.names.end(), [](const std::string& name) {
 		return name.empty();
@@ -1647,17 +2475,65 @@ Coat everywhere(const Coat& base) {
 	return coat;
 }
 
+bool bareBump(const Expression& call) {
+	return call.items.size() == 1 && isCallOf(call.items[0], { "bump" });
+}
+
+bool makesCoat(const Expression& call) {
+	return call.items.size() != 1 || bareBump(call);
+}
+
+Coat madeCoat(Evaluator& evaluator, const Expression& call) {
+	const Coat effect = withEffect(evaluator, blankCoat(), call.items[0]);
+	return bareBump(call) ? everywhere(effect) : withMask(evaluator, effect, call.items[1]);
+}
+
+Value pushCoat(Evaluator& evaluator, const Coat& coat) {
+	evaluator.looks.coats.push_back(coat);
+	return Value {
+		.kind     = ValueKind::Coat,
+		.slot     = -1,
+		.material = 0,
+		.coat     = std::uint32_t(evaluator.looks.coats.size() - 1),
+		.number   = 0,
+		.items    = {},
+		.fields   = nullptr,
+		.pattern  = nullptr,
+		.word     = nullptr,
+		.network  = nullptr,
+	};
+}
+
+Value newCoat(Evaluator& evaluator, const Expression& call) {
+	if (evaluator.tiled) {
+		fail(call.location, "tiles may only use coats made before them");
+		return numberValue(0);
+	}
+	if ((call.items.size() != 2 && !bareBump(call)) || !unnamedItems(call)) {
+		fail(call.location, coatForms);
+		return numberValue(0);
+	}
+	return pushCoat(evaluator, madeCoat(evaluator, call));
+}
+
+Value coatValue(Evaluator& evaluator, const Expression& call) {
+	if (makesCoat(call)) {
+		return newCoat(evaluator, call);
+	}
+	const Value value = evaluateExpression(evaluator, call.items[0]);
+	if (value.kind != ValueKind::Coat || !unnamedItems(call)) {
+		fail(call.location, coatForms);
+	}
+	return value;
+}
+
 Context coated(Evaluator& evaluator, const Context& context, const Expression& modifier) {
-	refusedInTiles(evaluator, modifier.location, "make a coat");
-	const bool bare = modifier.items.size() == 1 && isCallOf(modifier.items[0], { "bump" });
-	if ((modifier.items.size() != 2 && !bare) || !unnamedItems(modifier)) {
-		fail(modifier.location, "coat takes an effect and a mask; a bump may leave the mask out");
+	const Value coat = coatValue(evaluator, modifier);
+	if (failed()) {
 		return context;
 	}
-	const Coat effect = withEffect(evaluator, blankCoat(), modifier.items[0]);
-	evaluator.looks.coats.push_back(bare ? everywhere(effect) : withMask(evaluator, effect, modifier.items[1]));
 	Context out = context;
-	out.coats.insert(out.coats.begin(), std::uint32_t(evaluator.looks.coats.size() - 1));
+	out.coats.insert(out.coats.begin(), coat.coat);
 	return out;
 }
 
@@ -1722,7 +2598,7 @@ Context grouped(Evaluator& evaluator, const Context& context, const Call& call) 
 		return context;
 	}
 	Context out = context;
-	out.groups |= groupBit(evaluator.looks, name.word, call.expression.location);
+	out.groups |= groupBit(evaluator.looks, wordOf(name), call.expression.location);
 	return out;
 }
 
@@ -1879,9 +2755,9 @@ std::vector<std::uint32_t> collectChildren(Evaluator& evaluator, const std::vect
 	std::vector<std::uint32_t> children;
 	Context inner = context;
 	inner.sink    = &children;
-	evaluator.scopes.push_back(Scope {});
+	openBlock(evaluator);
 	runBlock(evaluator, body, inner);
-	evaluator.scopes.pop_back();
+	closeBlock(evaluator);
 	return children;
 }
 
@@ -2022,7 +2898,7 @@ void readClip(Shot& shot, const Fields& fields) {
 }
 
 Curve curveOf(const Fields& fields) {
-	const std::string& curve = fields.values.at("curve").word;
+	const std::string& curve = wordOf(fields.values.at("curve"));
 	if (curve != "filmic" && curve != "clamped") {
 		fail(fields.setting.location, "a curve is filmic or clamped");
 	}
@@ -2142,7 +3018,7 @@ std::uint64_t reachedGroups(Looks& looks, const Fields& fields) {
 			fail(fields.setting.location, "reaches is a list of group names");
 			return 0;
 		}
-		reached |= groupBit(looks, name.word, fields.setting.location);
+		reached |= groupBit(looks, wordOf(name), fields.setting.location);
 	}
 	return reached;
 }
@@ -2239,6 +3115,11 @@ void runSetting(Evaluator& evaluator, const Statement& setting) {
 		readLight(evaluator.lighting, evaluator.looks, fields);
 		return;
 	}
+	if (setting.text == "camera") {
+		readShotSetting(evaluator.shot, setting.text, fields);
+		evaluator.eye = evaluator.shot.camera.eye;
+		return;
+	}
 	if (shotSetting(setting.text)) {
 		readShotSetting(evaluator.shot, setting.text, fields);
 		return;
@@ -2265,17 +3146,14 @@ struct LoopLevel {
 struct LoopItem {
 	const Statement& loop;
 	std::size_t level;
-	Value value;
+	const Value& value;
 };
 
 void runLoopLevel(Evaluator& evaluator, const LoopLevel& at, const Context& context);
 
 void runLoopItem(Evaluator& evaluator, const LoopItem& item, const Context& context) {
-	const Scope bound = {
-		{ item.loop.names[item.level], item.value },
-	};
-
-	evaluator.scopes.push_back(bound);
+	openBlock(evaluator);
+	bindLocal(evaluator, item.loop.names[item.level], item.value);
 	if (item.level + 1 == item.loop.names.size()) {
 		runBlock(evaluator, item.loop.body, context);
 	}
@@ -2287,7 +3165,7 @@ void runLoopItem(Evaluator& evaluator, const LoopItem& item, const Context& cont
 
 		runLoopLevel(evaluator, level, context);
 	}
-	evaluator.scopes.pop_back();
+	closeBlock(evaluator);
 }
 
 std::vector<Value> rangeValues(Evaluator& evaluator, const Expression& range) {
@@ -2308,12 +3186,12 @@ std::vector<Value> loopValues(Evaluator& evaluator, const Expression& source) {
 	if (source.kind == ExpressionKind::Binary && source.text == "..") {
 		return rangeValues(evaluator, source);
 	}
-	const Value list = evaluateExpression(evaluator, source);
+	Value list = evaluateExpression(evaluator, source);
 	if (list.kind != ValueKind::List) {
 		fail(source.location, "a loop runs over a range or a list");
 		return {};
 	}
-	return list.items;
+	return std::move(list.items);
 }
 
 struct ComprehensionLevel {
@@ -2347,20 +3225,19 @@ std::vector<Value> innerElements(Evaluator& evaluator, const ComprehensionLevel&
 	if (!kept(evaluator, at.comprehension)) {
 		return {};
 	}
-	return { evaluateExpression(evaluator, at.comprehension.items[0]) };
+	std::vector<Value> element;
+	element.push_back(evaluateExpression(evaluator, at.comprehension.items[0]));
+	return element;
 }
 
 std::vector<Value> comprehendLevel(Evaluator& evaluator, const ComprehensionLevel& at) {
 	std::vector<Value> elements;
-	for (const Value& value : loopValues(evaluator, at.comprehension.items[at.level + 1])) {
-		const Scope bound = {
-			{ at.comprehension.names[at.level], value },
-		};
-
-		evaluator.scopes.push_back(bound);
-		const std::vector<Value> inner = innerElements(evaluator, at);
-		evaluator.scopes.pop_back();
-		elements.insert(elements.end(), inner.begin(), inner.end());
+	for (Value& value : loopValues(evaluator, at.comprehension.items[at.level + 1])) {
+		openBlock(evaluator);
+		bindLocal(evaluator, at.comprehension.names[at.level], std::move(value));
+		std::vector<Value> inner = innerElements(evaluator, at);
+		closeBlock(evaluator);
+		elements.insert(elements.end(), std::make_move_iterator(inner.begin()), std::make_move_iterator(inner.end()));
 	}
 	return elements;
 }
@@ -2371,12 +3248,12 @@ Value evaluateComprehension(Evaluator& evaluator, const Expression& comprehensio
 		.level         = 0,
 	};
 
-	return listValue(comprehendLevel(evaluator, first));
+	return checkedList(comprehendLevel(evaluator, first), comprehension.location);
 }
 
 void runLoopLevel(Evaluator& evaluator, const LoopLevel& at, const Context& context) {
 	for (const Value& value : loopValues(evaluator, at.loop.expressions[at.level])) {
-		if (failed()) {
+		if (failed() || evaluator.ended || evaluator.returned) {
 			return;
 		}
 
@@ -2400,50 +3277,67 @@ void runLoop(Evaluator& evaluator, const Statement& loop, const Context& context
 }
 
 void runScoped(Evaluator& evaluator, const std::vector<Statement>& body, const Context& context) {
-	evaluator.scopes.push_back(Scope {});
+	openBlock(evaluator);
 	runBlock(evaluator, body, context);
-	evaluator.scopes.pop_back();
+	closeBlock(evaluator);
 }
 
-const Value* valueBefore(const Evaluator& evaluator, const std::vector<Scope>& before, std::size_t scope, const std::string& name) {
-	const auto old = before[scope].find(name);
-	if (old != before[scope].end()) {
+const Value* valueBefore(const Evaluator& evaluator, const Scope& before, const std::string& name) {
+	const auto old = before.find(name);
+	if (old != before.end()) {
 		return &old->second;
 	}
-	return scope == 0 ? sharedName(evaluator, name) : nullptr;
+	return sharedName(evaluator, name);
 }
 
-void mergeBranch(Evaluator& evaluator, const std::vector<Scope>& before, const Operation& select) {
-	for (std::size_t i = 0; i < before.size(); ++i) {
-		for (auto& [name, after] : evaluator.scopes[i]) {
-			const Value* old = valueBefore(evaluator, before, i, name);
-			if (old && !sameValue(*old, after)) {
-				const Operation operands = {
-					.opcode   = Opcode::Select,
-					.a        = select.a,
-					.b        = after,
-					.c        = *old,
-					.location = select.location,
-				};
+struct Bindings {
+	Scope top;
+	std::vector<Binding> locals;
+};
 
-				after = selectValue(evaluator, operands);
-			}
+void mergeValue(Evaluator& evaluator, const Operation& select, const Value& old, Value& after) {
+	if (sameValue(old, after)) {
+		return;
+	}
+
+	const Operation operands = {
+		.opcode   = Opcode::Select,
+		.a        = select.a,
+		.b        = after,
+		.c        = old,
+		.location = select.location,
+	};
+
+	after = selectValue(evaluator, operands);
+}
+
+void mergeBranch(Evaluator& evaluator, const Bindings& before, const Operation& select) {
+	for (auto& [name, after] : evaluator.top) {
+		if (const Value* old = valueBefore(evaluator, before.top, name)) {
+			mergeValue(evaluator, select, *old, after);
 		}
+	}
+	for (std::size_t i = 0; i < before.locals.size(); ++i) {
+		mergeValue(evaluator, select, before.locals[i].value, evaluator.locals[i].value);
 	}
 }
 
 void runUnknownIf(Evaluator& evaluator, const Statement& branch, const Value& condition) {
-	const std::vector<Scope> before = evaluator.scopes;
+	const Bindings before = {
+		.top    = evaluator.top,
+		.locals = evaluator.locals,
+	};
+
 	runScoped(evaluator, branch.body, rootContext());
 	if (evaluator.returned) {
-		fail(branch.location, "a surface or a function may not return inside an if it cannot decide when loading");
+		fail(branch.location, "a return inside an if not known when the scene loads; use select");
 	}
 
 	const Operation operands = {
 		.opcode   = Opcode::Select,
 		.a        = condition,
-		.b        = numberValue(0),
-		.c        = numberValue(0),
+		.b        = zeroValue(),
+		.c        = zeroValue(),
 		.location = branch.location,
 	};
 
@@ -2484,7 +3378,63 @@ struct ShapeCall {
 
 void runShape(Evaluator& evaluator, const ShapeCall& shapeCall, const Context& context);
 
+void printValue(std::ostringstream& out, const Value& value);
+
+void printItems(std::ostringstream& out, const Value& value) {
+	for (std::size_t i = 0; i < value.items.size(); ++i) {
+		out << (i > 0 ? ", " : "");
+		if (value.kind == ValueKind::Record) {
+			out << (*value.fields)[i] << " = ";
+		}
+		printValue(out, value.items[i]);
+	}
+}
+
+void printValue(std::ostringstream& out, const Value& value) {
+	const bool record = value.kind == ValueKind::Record;
+	if (value.kind == ValueKind::Number) {
+		out << value.number;
+		return;
+	}
+	if (value.kind == ValueKind::Word) {
+		out << wordOf(value);
+		return;
+	}
+	if (value.kind != ValueKind::List && !record) {
+		out << '(' << kindName(value.kind) << ')';
+		return;
+	}
+	out << (record ? '{' : '[');
+	printItems(out, value);
+	out << (record ? '}' : ']');
+}
+
+void runPrint(Evaluator& evaluator, const Expression& call) {
+	if (evaluator.compiler) {
+		fail(call.location, "a surface does not print");
+		return;
+	}
+	const Arguments arguments = evaluateArguments(evaluator, call);
+	if (!arguments.named.empty()) {
+		fail(call.location, "print takes values, not named ones");
+	}
+	if (failed() || !evaluator.printed.insert(&call).second) {
+		return;
+	}
+	std::ostringstream out;
+	out << *call.location.file << ':' << call.location.line << ':';
+	for (const Value& value : arguments.positional) {
+		out << ' ';
+		printValue(out, value);
+	}
+	std::fprintf(stderr, "%s\n", out.str().c_str());
+}
+
 void runCall(Evaluator& evaluator, const Statement& statement, const Context& context) {
+	if (statement.expressions[0].builtin == Builtin::Print) {
+		runPrint(evaluator, statement.expressions[0]);
+		return;
+	}
 	expectBuilding(evaluator, statement);
 	if (failed()) {
 		return;
@@ -2511,7 +3461,7 @@ void runCall(Evaluator& evaluator, const Statement& statement, const Context& co
 }
 
 void runShape(Evaluator& evaluator, const ShapeCall& shapeCall, const Context& context) {
-	const Arguments arguments = evaluateArguments(evaluator, shapeCall.call);
+	Arguments arguments = evaluateArguments(evaluator, shapeCall.call);
 	std::vector<std::uint32_t> children;
 	Context inner = context;
 	inner.sink    = &children;
@@ -2524,6 +3474,7 @@ void runShape(Evaluator& evaluator, const ShapeCall& shapeCall, const Context& c
 	};
 
 	runDefinition(evaluator, invocation);
+	evaluator.ended = false;
 	if (children.empty()) {
 		return;
 	}
@@ -2716,8 +3667,16 @@ void runJoin(Evaluator& evaluator, const Statement& join, const Context& context
 	emitGroup(evaluator, group, context);
 }
 
+bool isBuiltin(const std::string& name) {
+	return builtinOf(name) != Builtin::None || name == "coat" || name == "pi";
+}
+
 void define(Evaluator& evaluator, const Statement& statement) {
-	if (evaluator.scopes.size() != 1) {
+	if (isBuiltin(statement.text)) {
+		fail(statement.location, statement.text + " is a built-in and cannot be defined");
+		return;
+	}
+	if (!evaluator.blocks.empty()) {
 		fail(statement.location, "surface, shape and function are defined at the top of a file");
 		return;
 	}
@@ -2728,21 +3687,115 @@ void define(Evaluator& evaluator, const Statement& statement) {
 	evaluator.definitions[statement.text] = &statement;
 }
 
-void runReturn(Evaluator& evaluator, const Statement& statement) {
-	if (!evaluator.compiler && !evaluator.isolated) {
-		fail(statement.location, "return belongs in a surface or a function");
+bool computing(const Evaluator& evaluator) {
+	return evaluator.compiler || evaluator.isolated;
+}
+
+bool building(const Evaluator& evaluator, const Context& context) {
+	return !computing(evaluator) && (evaluator.tiled || context.sink);
+}
+
+std::string returnRefusal(const Evaluator& evaluator, const Statement& statement, const Context& context) {
+	const bool bare = statement.expressions.empty();
+	if (computing(evaluator)) {
+		return bare ? "a surface or a function must return a value" : "";
+	}
+	if (building(evaluator, context)) {
+		return bare ? "" : "a shape or a tile body returns no value";
+	}
+	return "return belongs in a surface, a function, a shape or a tile body";
+}
+
+void runReturn(Evaluator& evaluator, const Statement& statement, const Context& context) {
+	const std::string refused = returnRefusal(evaluator, statement, context);
+	if (!refused.empty()) {
+		fail(statement.location, refused);
+		return;
+	}
+	if (statement.expressions.empty()) {
+		evaluator.ended = true;
 		return;
 	}
 	evaluator.result   = evaluateExpression(evaluator, statement.expressions[0]);
 	evaluator.returned = true;
 }
 
+std::string letRefusal(const Evaluator& evaluator, const std::string& name) {
+	if (name == "time") {
+		return "time belongs to the clip and cannot be changed";
+	}
+	const bool top = evaluator.blocks.empty();
+	if (top && isBuiltin(name)) {
+		return name + " is a built-in and cannot be bound";
+	}
+	return top && tileBinding(name) ? name + " belongs to the tiles and may not be bound at the top level" : "";
+}
+
+bool growsItself(const Statement& statement) {
+	const Expression& call = statement.expressions[0];
+	if (call.kind != ExpressionKind::Call || call.items.empty() || call.items[0].kind != ExpressionKind::Name) {
+		return false;
+	}
+	return (call.text == "append" || call.text == "join") && call.items[0].text == statement.text && unnamedItems(call);
+}
+
+std::vector<Value> addedArguments(Evaluator& evaluator, const Expression& call) {
+	std::vector<Value> added;
+	for (std::size_t i = 1; i < call.items.size(); ++i) {
+		added.push_back(evaluateExpression(evaluator, call.items[i]));
+	}
+	return added;
+}
+
+Value takenList(Evaluator& evaluator, const Expression& name) {
+	Value* bound = boundPlace(evaluator, name.text);
+	if (bound && bound == namedPlace(evaluator, name.text) && bound->kind == ValueKind::List) {
+		return std::move(*bound);
+	}
+	return evaluateExpression(evaluator, name);
+}
+
+Value grownItself(Evaluator& evaluator, const Expression& call) {
+	const std::vector<Value> added = addedArguments(evaluator, call);
+	if (failed()) {
+		return numberValue(0);
+	}
+	return grownList(call, takenList(evaluator, call.items[0]), added);
+}
+
+Value letValue(Evaluator& evaluator, const Statement& statement) {
+	if (growsItself(statement)) {
+		return grownItself(evaluator, statement.expressions[0]);
+	}
+	return evaluateExpression(evaluator, statement.expressions[0]);
+}
+
+const Value* reboundPlace(Evaluator& evaluator, const std::string& name) {
+	if (const Value* found = boundPlace(evaluator, name)) {
+		return found;
+	}
+	return bindsLocally(evaluator) ? nullptr : sharedName(evaluator, name);
+}
+
+void checkKind(const Statement& statement, std::optional<ValueKind> before, const Value& value) {
+	if (before && *before != value.kind && !failed()) {
+		fail(statement.location, statement.text + " holds " + kindName(*before) + " and cannot be bound to " + kindName(value.kind));
+	}
+}
+
 void runLet(Evaluator& evaluator, const Statement& statement) {
-	if (statement.text == "time") {
-		fail(statement.location, "time belongs to the clip and cannot be changed");
+	const std::string refused = letRefusal(evaluator, statement.text);
+	if (!refused.empty()) {
+		fail(statement.location, refused);
 		return;
 	}
-	bind(evaluator, statement.text, evaluateExpression(evaluator, statement.expressions[0]));
+	const Value* old                      = reboundPlace(evaluator, statement.text);
+	const std::optional<ValueKind> before = old ? std::optional(old->kind) : std::nullopt;
+	Value value                           = letValue(evaluator, statement);
+	checkKind(statement, before, value);
+	if (!failed()) {
+		bind(evaluator, statement.text, std::move(value));
+	}
 }
 
 void runSettingStatement(Evaluator& evaluator, const Statement& statement) {
@@ -2759,7 +3812,7 @@ std::uint64_t textKey(std::uint64_t key, const std::string& text) {
 }
 
 const Expression* materialCall(const Expression& expression) {
-	if (expression.kind == ExpressionKind::Call && materialKind(expression.text)) {
+	if (expression.kind == ExpressionKind::Call && makesMaterial(expression.builtin)) {
 		return &expression;
 	}
 	for (const Expression& item : expression.items) {
@@ -2788,13 +3841,22 @@ std::string modifierRefusal(const Statement& statement, const Expression& modifi
 	if (statement.kind != StatementKind::Place) {
 		return {};
 	}
-	if (modifier.text == "coat") {
-		return "make a coat";
-	}
 	if (modifier.text == "rule") {
 		return "say rules";
 	}
 	return modifier.text == "group" ? "put shapes in a group" : "";
+}
+
+const Expression* coatCall(const Expression& expression) {
+	if (isCallOf(expression, { "coat" }) && makesCoat(expression)) {
+		return &expression;
+	}
+	for (const Expression& item : expression.items) {
+		if (const Expression* found = coatCall(item)) {
+			return found;
+		}
+	}
+	return nullptr;
 }
 
 void checkTileBody(const std::vector<Statement>& body);
@@ -2807,6 +3869,10 @@ void checkTileExpression(const Statement& statement, const Expression& expressio
 	}
 	if (const Expression* material = materialCall(expression)) {
 		fail(material->location, "tiles may not make a material");
+		return;
+	}
+	if (const Expression* coat = coatCall(expression)) {
+		fail(coat->location, "tiles may only use coats made before them");
 	}
 }
 
@@ -2916,10 +3982,22 @@ std::uint64_t patternKey(const Pattern& pattern) {
 	return key;
 }
 
+std::uint64_t fieldsKey(std::uint64_t key, const Value& value) {
+	if (!value.fields) {
+		return key;
+	}
+	for (const std::string& field : *value.fields) {
+		key = textKey(key, field);
+	}
+	return key;
+}
+
 std::uint64_t valueKey(const Value& value) {
 	std::uint64_t key = mixedKey(std::uint64_t(value.kind), std::bit_cast<std::uint64_t>(value.number));
-	key               = textKey(mixedKey(mixedKey(key, std::uint64_t(value.slot)), value.material), value.word);
+	key               = textKey(mixedKey(mixedKey(mixedKey(key, std::uint64_t(value.slot)), value.material), value.coat), wordOf(value));
 	key               = value.pattern ? mixedKey(key, patternKey(*value.pattern)) : key;
+	key               = fieldsKey(key, value);
+	key               = value.network ? mixedKey(key, value.network->key) : key;
 	for (const Value& item : value.items) {
 		key = mixedKey(key, valueKey(item));
 	}
@@ -2939,7 +4017,7 @@ TileBlock tileBlock(const Evaluator& evaluator, const Statement& tiles, const Ti
 		.block           = &tiles,
 		.parsed          = evaluator.parsed,
 		.definitions     = evaluator.definitions,
-		.scope           = evaluator.scopes[0],
+		.scope           = evaluator.top,
 		.defaultMaterial = evaluator.defaultMaterial,
 	};
 
@@ -2952,14 +4030,14 @@ TileBlock tileBlock(const Evaluator& evaluator, const Statement& tiles, const Ti
 		.from     = { grid.from[0], grid.from[1], grid.from[2] },
 		.to       = { grid.to[0], grid.to[1], grid.to[2] },
 		.source   = 0,
-		.bindings = bindingKeys(evaluator.scopes[0]),
+		.bindings = bindingKeys(evaluator.top),
 		.reads    = std::make_shared<TileReads>(reads),
 		.snapshot = std::make_shared<const TileSnapshot>(snapshot),
 	};
 }
 
 void runTiles(Evaluator& evaluator, const Statement& tiles, const Context& context) {
-	if (evaluator.compiler || evaluator.tiled || context.sink || evaluator.scopes.size() != 1) {
+	if (evaluator.compiler || evaluator.tiled || context.sink || !evaluator.blocks.empty()) {
 		fail(tiles.location, "tiles stand at the top level of a file");
 		return;
 	}
@@ -2978,11 +4056,7 @@ void runTiles(Evaluator& evaluator, const Statement& tiles, const Context& conte
 }
 
 void runStatement(Evaluator& evaluator, const Statement& statement, const Context& context) {
-	if (failed()) {
-		return;
-	}
-	if (evaluator.returned) {
-		fail(statement.location, "nothing may follow a return");
+	if (failed() || evaluator.ended || evaluator.returned) {
 		return;
 	}
 	switch (statement.kind) {
@@ -2990,7 +4064,7 @@ void runStatement(Evaluator& evaluator, const Statement& statement, const Contex
 		case StatementKind::Let: return runLet(evaluator, statement);
 		case StatementKind::For: return runLoop(evaluator, statement, context);
 		case StatementKind::If: return runIf(evaluator, statement, context);
-		case StatementKind::Return: return runReturn(evaluator, statement);
+		case StatementKind::Return: return runReturn(evaluator, statement, context);
 		case StatementKind::Surface: return define(evaluator, statement);
 		case StatementKind::Shape: return define(evaluator, statement);
 		case StatementKind::Function: return define(evaluator, statement);
@@ -3274,18 +4348,24 @@ LoadedScene loadScene(const std::string& path, double time) {
 		.parsed          = std::make_shared<ParsedFiles>(parsed),
 		.imported        = {},
 		.definitions     = {},
-		.scopes          = { timedScope(time) },
+		.top             = timedScope(time),
+		.locals          = {},
+		.blocks          = {},
 		.shared          = nullptr,
-		.base            = 1,
+		.tile            = nullptr,
+		.base            = 0,
 		.compiler        = nullptr,
 		.isolated        = false,
 		.returned        = false,
 		.result          = numberValue(0),
+		.ended           = false,
 		.specialised     = {},
 		.defaultMaterial = -1,
 		.timed           = false,
 		.tiled           = false,
 		.reads           = {},
+		.eye             = std::nullopt,
+		.printed         = {},
 	};
 
 	const Location start = {
@@ -3319,15 +4399,22 @@ LoadedScene loadScene(const std::string& path, double time) {
 	};
 }
 
-Scope tileScope(const TilePlace& place) {
+std::vector<double> tileOrigin(const TileBlock& block, const TilePlace& place) {
+	return { block.step[0] * double(place.index[0]), block.step[1] * double(place.index[1]), block.step[2] * double(place.index[2]) };
+}
+
+Scope tileScope(const TileBlock& block, const TilePlace& place) {
+	const std::vector<double> index = { double(place.index[0]), double(place.index[1]), double(place.index[2]) };
+	const std::vector<double> step  = { block.step[0], block.step[1], block.step[2] };
 	Scope scope;
-	scope["tile"] = listValue({ numberValue(double(place.index[0])), numberValue(double(place.index[1])), numberValue(double(place.index[2])) });
+	scope["tile"]        = numbersValue(index);
+	scope["tile_origin"] = numbersValue(tileOrigin(block, place));
+	scope["tile_step"]   = numbersValue(step);
 	return scope;
 }
 
 Context tileContext(const TileBlock& block, const TilePlace& place) {
-	const std::vector<double> offset = { block.step[0] * double(place.index[0]), block.step[1] * double(place.index[1]), block.step[2] * double(place.index[2]) };
-	return composed(rootContext(), translation(offset));
+	return composed(rootContext(), translation(tileOrigin(block, place)));
 }
 
 TileContent failedTile(const std::string& error) {
@@ -3342,11 +4429,12 @@ const Location& tileBlockLocation(const TileBlock& block) {
 	return block.snapshot->block->location;
 }
 
-TileContent evaluatedTile(const Scene& scene, const TilePlace& place) {
+TileContent evaluatedTile(const Scene& scene, const TilePlace& place, const math::Vector& eye) {
 	takenFailure();
 	const TileBlock& block       = scene.tiles[place.block];
 	const TileSnapshot& snapshot = *block.snapshot;
 	SceneFile file               = emptySceneFile();
+	const Scope names            = tileScope(block, place);
 
 	Evaluator evaluator = {
 		.scene           = file.scene,
@@ -3356,18 +4444,24 @@ TileContent evaluatedTile(const Scene& scene, const TilePlace& place) {
 		.parsed          = nullptr,
 		.imported        = {},
 		.definitions     = snapshot.definitions,
-		.scopes          = { Scope {}, tileScope(place) },
+		.top             = {},
+		.locals          = {},
+		.blocks          = { 0 },
 		.shared          = &snapshot.scope,
-		.base            = 1,
+		.tile            = &names,
+		.base            = 0,
 		.compiler        = nullptr,
 		.isolated        = false,
 		.returned        = false,
 		.result          = numberValue(0),
+		.ended           = false,
 		.specialised     = {},
 		.defaultMaterial = snapshot.defaultMaterial,
 		.timed           = false,
 		.tiled           = true,
 		.reads           = {},
+		.eye             = eye,
+		.printed         = {},
 	};
 
 	runBlock(evaluator, snapshot.block->body, tileContext(block, place));

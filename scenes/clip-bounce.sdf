@@ -34,9 +34,9 @@ light sphere {
 }
 
 let rubber = plastic(#C41E3A, roughness = 0.4);
-let floor  = matte(ramp(checker(2), #5C4636, #C9B89A));
+let ground = matte(ramp(checker(2), #5C4636, #C9B89A));
 
-paint(floor) plane([0, 0, 1], 0);
+paint(ground) plane([0, 0, 1], 0);
 
 at([0, 0, 0.3 + 1.2 * height]) scale([1, 1, 0.8 + 0.2 * min(1, 4 * height)]) paint(rubber) sphere(0.3);
 

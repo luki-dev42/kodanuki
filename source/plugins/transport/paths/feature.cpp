@@ -252,7 +252,7 @@ Features featuresOf(const FeatureQuery& query) {
 		features.members.push_back(FeatureMember::Scattering);
 	}
 	features.coats = coatLaddersOf(looks, firstRung(features, looks));
-	if (sceneWearsCoats(query.scene)) {
+	if (sceneWearsCoats(query.scene, looks)) {
 		features.members.push_back(FeatureMember::Coats);
 	}
 	if (sceneHasRules(query.scene, lighting)) {

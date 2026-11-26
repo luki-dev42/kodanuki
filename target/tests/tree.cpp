@@ -11,6 +11,7 @@
 #include "plugins/geometry/tree/patch.h"
 #include "plugins/geometry/tree/reach.h"
 #include "plugins/geometry/tree/walk.h"
+#include "plugins/geometry/tree/world.h"
 #include "plugins/transport/paths/paths.h"
 #include "sdf/compare.h"
 #include "sdf/scene.h"
@@ -2030,8 +2031,9 @@ void checkReachedTiles() {
 	check(above < 0 && std::abs(reached - (6 - std::sqrt(0.75))) < 1e-2, "a node that ran its tiles under the old reach runs the tiles the moved reach meets anew");
 }
 
-SceneFile shownTileScene(int shown) {
-	const std::string text = "let SHOWN = " + std::to_string(shown) + R"(;
+SceneFile shownTileScene(double time, const std::string& condition) {
+	const std::string text  = R"(
+		let SHOWN = 1 - time;
 
 		render {
 			far = 30;
@@ -2047,15 +2049,23 @@ SceneFile shownTileScene(int shown) {
 			return length(p) - r;
 		}
 
+		function shownBy(k) {
+			return k - time;
+		}
+
 		tiles(step = [10, 10, 10]) {
 			if tile.z == 0 {
-				if SHOWN > 0 {
+				if )" + condition +
+							  R"( > 0 {
 					at([5, 5, 1]) ball(1);
 				}
 			}
 		}
 	)";
-	return smallScene(writeScene("shown_tiles", text.c_str()));
+	SceneFile file          = sceneAtOrExit(writeScene("shown_tiles", text.c_str()), time);
+	file.shot.render.width  = 320;
+	file.shot.render.height = 200;
+	return file;
 }
 
 std::size_t freedSlotLeaves(const Tree& tree) {
@@ -2069,8 +2079,8 @@ std::size_t freedSlotLeaves(const Tree& tree) {
 	return named;
 }
 
-void checkFollowedTiles() {
-	SceneFile file                       = shownTileScene(1);
+void checkFollowedTiles(const std::string& condition) {
+	SceneFile file                       = shownTileScene(0, condition);
 	const ObjectBoxes boxes              = objectBoxes(file.scene, 1);
 	const Region region                  = boxedRegion(heldBoxes(boxes.boxes, file.scene), file.shot);
 	const Detail detail                  = testDetail(file, region, defaultDetailMembers());
@@ -2093,11 +2103,11 @@ void checkFollowedTiles() {
 	moveReach(tree, shotReach(file.shot));
 	const Geometry geometry = treeGeometry(file.scene, tree);
 	const double shown      = hitDistance(geometry, { 0, 0, 1 }, { 5, 5, 1 });
-	file.scene              = shownTileScene(0).scene;
+	file.scene              = shownTileScene(2, condition).scene;
 	followScene(tree, objectKeys(file.scene));
 	const std::size_t named = freedSlotLeaves(tree);
 	const double hidden     = named == 0 ? hitDistance(geometry, { 0, 0, 1 }, { 5, 5, 1 }) : 0;
-	std::printf("followed tiles: a tile ball is met at %.3f, and after a binding the tile read hides it, %zu leaves name a freed slot and it is met at %.3f\n", shown, named, hidden);
+	std::printf("followed tiles (%s): a tile ball is met at %.3f, and after a binding the tile read hides it, %zu leaves name a freed slot and it is met at %.3f\n", condition.c_str(), shown, named, hidden);
 	check(shown > 0 && named == 0 && hidden < 0, "a tile that runs again without an object drops the nodes below the tile level that held it, though the nodes above list no tile object");
 }
 
@@ -2388,6 +2398,139 @@ void checkWalkedTiles() {
 	check(late <= early + early / 4 && lateHeld <= earlyHeld + earlyHeld / 4, "the tiles and bytes a tree holds stay flat while its reach walks on and its tiles run again");
 }
 
+std::string eyeTileText(const std::string& eye) {
+	return "render {\n\tfar = 300;\n}\n\ncamera {\n\teye    = " + eye + R"(;
+	target = [1000, 5, 3];
+	fov    = 0.6;
+}
+
+surface ball(r) {
+	return length(p) - r;
+}
+
+tiles(step = [10, 10, 10], from = [0, 0, 0], to = [19, 0, 0]) {
+	at([5, 5, 1]) ball(1);
+	if tile.x == 19 {
+		at([5, 5, 9]) ball(0.2 + 0.01 * time + eye(100).x / 10000);
+	}
+	if tile.x >= 14 {
+		return;
+	}
+	at([5, 5, 4]) ball(0.5 + eye(100).x / 1000);
+	if tile.x >= 7 {
+		return;
+	}
+	at([5, 5, 7]) ball(0.2 + eye(64).x / 1000);
+}
+)";
+}
+
+void heldEveryTile(Tree& tree, const SceneFile& file) {
+	const Geometry geometry = treeGeometry(file.scene, tree);
+	for (int i = 0; i < 20; ++i) {
+		hitDistance(geometry, { 10.0 * i + 5, -5, 0.5 }, { 10.0 * i + 5, 5, 0.5 });
+	}
+}
+
+std::uint64_t flownRuns(Tree& tree, const Shot& shot, double x) {
+	const std::uint64_t before = tree.growth->tiles.evaluated;
+	Shot flown                 = shot;
+	flown.camera.eye           = { x, 5, 3 };
+	moveReach(tree, shotReach(flown));
+	return tree.growth->tiles.evaluated - before;
+}
+
+std::vector<std::uint64_t> firstTileKeys(const Tree& tree) {
+	return tree.growth->tiles.tiles[tree.growth->tiles.numbers.at({ 0, 0, 0, 0 })]->keys;
+}
+
+void checkFlownEye() {
+	SceneFile file      = smallScene(writeScene("flown_eye", eyeTileText("[5, 5, 3]").c_str()));
+	const LazyCase made = tiledCase(file);
+	Tree tree           = lazyTree(lazyInput(made));
+	moveReach(tree, shotReach(file.shot));
+	heldEveryTile(tree, file);
+	const std::uint64_t first                 = tree.growth->tiles.evaluated;
+	const std::vector<std::uint64_t> original = firstTileKeys(tree);
+	const double near                         = hitDistance(treeGeometry(file.scene, tree), { 5, -5, 4 }, { 5, 5, 4 });
+	const std::uint64_t inside                = flownRuns(tree, file.shot, 60);
+	const std::uint64_t small                 = flownRuns(tree, file.shot, 70);
+	const std::uint64_t large                 = flownRuns(tree, file.shot, 110);
+	const double moved                        = hitDistance(treeGeometry(file.scene, tree), { 5, -5, 4 }, { 5, 5, 4 });
+	const std::uint64_t both                  = flownRuns(tree, file.shot, 200);
+	const bool changed                        = firstTileKeys(tree) != original;
+	const std::uint64_t back                  = flownRuns(tree, file.shot, 5);
+	std::printf("flown eye: %llu tiles run; a flight inside both cells runs %llu again, across a 64 m edge %llu, across a 100 m edge %llu, across both %llu, back %llu; the eye-100 ball is met at %.3f, then %.3f\n", (unsigned long long)first, (unsigned long long)inside, (unsigned long long)small, (unsigned long long)large, (unsigned long long)both, (unsigned long long)back, near, moved);
+	check(first == 20 && inside == 0, "a flown camera that stays inside the snapped cells runs no tile again");
+	check(small == 7 && large == 15 && both == 15 && back == 15, "a flown camera runs again only the tiles that read the eye at a step whose snapped value changed, each once, and never the tiles that read no eye");
+	check(std::abs(near - (10 - 0.55)) < 1e-2 && std::abs(moved - (10 - 0.65)) < 1e-2 && changed && firstTileKeys(tree) == original, "a tile run again sees the moved eye, its shapes replace the old ones, and the same eye gives the same tile");
+}
+
+void checkFlownBand() {
+	const std::string text = R"(render {
+	far = 300;
+}
+
+camera {
+	eye    = [5, 5, 3];
+	target = [1000, 5, 3];
+	fov    = 0.6;
+}
+
+surface ball(r) {
+	return length(p) - r;
+}
+
+tiles(step = [10, 10, 10], from = [0, 0, 0], to = [19, 0, 0]) {
+	at([5, 5, 1]) ball(0.5 + 0.1 * eye_band(tile_origin.xy + [5, 5], [30, 60], 10));
+}
+)";
+	SceneFile file      = smallScene(writeScene("flown_band", text.c_str()));
+	const LazyCase made = tiledCase(file);
+	Tree tree           = lazyTree(lazyInput(made));
+	moveReach(tree, shotReach(file.shot));
+	heldEveryTile(tree, file);
+	const std::uint64_t first  = tree.growth->tiles.evaluated;
+	const std::uint64_t inside = flownRuns(tree, file.shot, 8);
+	const std::uint64_t moved  = flownRuns(tree, file.shot, 25);
+	const std::uint64_t back   = flownRuns(tree, file.shot, 5);
+	std::printf("flown band: %llu tiles run; a flight inside the snapped cell runs %llu again, two cells on %llu, back %llu\n", (unsigned long long)first, (unsigned long long)inside, (unsigned long long)moved, (unsigned long long)back);
+	check(first == 20 && inside == 0 && moved == 4 && back == 4, "a flown camera runs again only the tiles whose band changed, not every tile that read the eye's cell");
+}
+
+std::uint64_t clipRuns(SceneFile& file, BuiltGeometry& built, double time) {
+	const std::uint64_t before = built.tree.growth->tiles.evaluated;
+	SceneFile next             = sceneAtOrExit(writeScene("clip_eye", eyeTileText("[5 + 20 * time, 5, 3]").c_str()), time);
+	carriedTiles(file.scene, next.scene);
+	const bool shapes = !sameShapes(file.scene, next.scene);
+	file.scene        = std::move(next.scene);
+	file.shot         = next.shot;
+	if (shapes) {
+		keptGeometry(built, file, file.shot.camera.eye);
+	}
+	moveReach(built.tree, shotReach(file.shot));
+	return built.tree.growth->tiles.evaluated - before;
+}
+
+void checkClipEye() {
+	SceneFile file      = smallScene(writeScene("clip_eye", eyeTileText("[5 + 20 * time, 5, 3]").c_str()));
+	const LazyCase made = tiledCase(file);
+	BuiltGeometry built = {
+		.detail = made.detail,
+		.tree   = lazyTree(lazyInput(made)),
+	};
+
+	moveReach(built.tree, shotReach(file.shot));
+	heldEveryTile(built.tree, file);
+	std::vector<std::uint64_t> runs;
+	for (int frame = 1; frame <= 10; ++frame) {
+		runs.push_back(clipRuns(file, built, frame));
+	}
+	const std::vector<std::uint64_t> expected = { 1, 1, 8, 1, 15, 1, 8, 1, 1, 15 };
+	std::printf("clip eye: an eye 20 m a frame over 20 tiles runs %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu tiles in frames 1-10\n", (unsigned long long)runs[0], (unsigned long long)runs[1], (unsigned long long)runs[2], (unsigned long long)runs[3], (unsigned long long)runs[4], (unsigned long long)runs[5], (unsigned long long)runs[6], (unsigned long long)runs[7], (unsigned long long)runs[8], (unsigned long long)runs[9]);
+	check(runs == expected, "in a clip the timed tile runs every frame, once also where the eye it reads moved, and the tiles that read the eye only where its snapped value changes");
+}
+
 bool tileStepsRefused(const char* name, const char* step) {
 	const std::string text               = std::string("surface ball(r) {\n\treturn length(p) - r;\n}\n\ntiles(step = ") + step + ") {\n\tif tile.z == 0 {\n\t\tat([0.5, 0.5, 0.5]) ball(0.2);\n\t}\n}\n";
 	const SceneFile file                 = sceneOrExit(writeScene(name, text.c_str()));
@@ -2433,7 +2576,8 @@ void checkTree() {
 	checkReachSphere();
 	checkReachTiles();
 	checkReachedTiles();
-	checkFollowedTiles();
+	checkFollowedTiles("SHOWN");
+	checkFollowedTiles("shownBy(1)");
 	checkReorderedScene();
 	checkRemovedSlot();
 	checkSharedPasses();
@@ -2458,6 +2602,9 @@ void checkTree() {
 	checkBoundedTiles();
 	checkBoundedSky();
 	checkWalkedTiles();
+	checkFlownEye();
+	checkFlownBand();
+	checkClipEye();
 }
 
 }

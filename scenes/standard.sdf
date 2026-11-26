@@ -59,13 +59,10 @@ surface revolve(points) {
 	}
 	let radius = points[0].x;
 	for i in 0..last {
-		let e = points[i + 1] - points[i];
-		if e.y == 0 {
-			let radius = radius + select(q.y >= points[i].y, e.x, 0);
-		}
-		if e.y != 0 {
-			let radius = radius + e.x * clamp((q.y - points[i].y) / e.y, 0, 1);
-		}
+		let e      = points[i + 1] - points[i];
+		let flat   = e.y == 0;
+		let share  = clamp((q.y - points[i].y) / select(flat, 1, e.y), 0, 1);
+		let radius = radius + e.x * select(flat, q.y >= points[i].y, share);
 	}
 	let outside = max(q.x - radius, max(points[0].y - q.y, q.y - points[last].y));
 	return select(outside > 0, 1, -1) * sqrt(d);

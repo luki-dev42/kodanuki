@@ -141,6 +141,15 @@ struct HeldTiles {
 	 */
 	std::set<std::vector<std::string>> readNames;
 	/**
+	 * The eye a tile sees (`eye(step)`): the frame's camera's, set before
+	 * the frame's tiles run.
+	 */
+	math::Vector eye;
+	/**
+	 * Each step some tile read the eye at.
+	 */
+	std::set<double> eyeSteps;
+	/**
 	 * The free spans of the scene's tile leaves.
 	 */
 	SpanStore leaves;
@@ -175,6 +184,11 @@ struct HeldTiles {
 	 * How many times a tile was run since the tree was made.
 	 */
 	std::uint64_t evaluated;
+	/**
+	 * How many seconds the tiles' runs took since the tree was made, each
+	 * run's wall time summed over the threads that ran them.
+	 */
+	double seconds;
 	/**
 	 * How many bytes the tiles hold: each held tile's shapes
 	 * (HeldTile::bytes) and every tile's record (tileRecordBytes).
@@ -219,6 +233,11 @@ struct TileSource {
 	 * The tree's least tolerance.
 	 */
 	double least;
+	/**
+	 * The eye the tiles see until a frame moves the reach: the open
+	 * reach's (openReach()).
+	 */
+	math::Vector eye;
 	/**
 	 * Whether an error is printed once and the tiles left empty, as the
 	 * viewer wants, rather than ending the program.
@@ -299,9 +318,22 @@ std::vector<std::uint32_t> ranTiles(Tree& tree, const Box& box);
 bool newTilesReached(const Tree& tree, const Box& box, const Reach& old);
 
 /**
+ * Return whether a tile that read the eye sees it elsewhere at the eye
+ * given: at some step a tile read it at (HeldTiles::eyeSteps), the eye
+ * snapped to that step (snappedEye()) differs from the tiles' eye
+ * snapped to it.
+ *
+ * @param tiles The tree's tiles.
+ * @param eye The frame's camera's eye.
+ */
+bool eyeMoved(const HeldTiles& tiles, const math::Vector& eye);
+
+/**
  * Return the numbers of the tiles a tree knows that a scene whose tiles
- * blocks were replaced makes anew: those whose block's source, or a
- * binding they read, differs from what they were run from.
+ * blocks were replaced, or the eye they see (HeldTiles::eye), makes
+ * anew: those whose block's source, a binding they read, or the eye
+ * snapped to a step they read it at differs from what they were run
+ * from.
  *
  * @param tree The growing tree, whose scene is the new one.
  */

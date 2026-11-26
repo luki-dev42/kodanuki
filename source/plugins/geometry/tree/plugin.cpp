@@ -64,7 +64,7 @@ Geometry treeBuilt(Renderer& renderer) {
 		world.emplace(builtGeometry(renderer.file, choices, forgivingTiles(renderer)));
 		return treeGeometry(renderer.file.scene, world->tree);
 	}
-	if (!keptGeometry(*world, renderer.file)) {
+	if (!keptGeometry(*world, renderer.file, renderer.frame.camera.eye)) {
 		remadeWorld(world, renderer.file, choices, forgivingTiles(renderer));
 	}
 	return treeGeometry(renderer.file.scene, world->tree);
@@ -95,6 +95,7 @@ std::vector<Counter> treePublished(const Renderer& renderer) {
 		Counter { .name = "nodes.forgotten", .value = tree ? double(tree->growth->forgotten) : 0 },
 		Counter { .name = "tree.rooted", .value = tree ? double(tree->growth->rooted) : 0 },
 		Counter { .name = "tiles.evaluated", .value = tree ? double(tree->growth->tiles.evaluated) : 0 },
+		Counter { .name = "tiles.seconds", .value = tree ? tree->growth->tiles.seconds : 0 },
 		Counter { .name = "tiles.held", .value = tree ? double(tree->growth->tiles.numbers.size()) : 0 },
 		Counter { .name = "bytes.tiles", .value = tree ? double(tree->growth->tiles.bytes) : 0 },
 	};

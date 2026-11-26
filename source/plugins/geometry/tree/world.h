@@ -42,14 +42,17 @@ BuiltGeometry builtGeometry(const SceneFile& file, const Choices& choices, bool 
  * (followScene()); a scene loaded again with the same shapes drops
  * nothing. A changed object outside the region is listed at the root
  * and comes in when the region grows to it (growRegion(), each frame).
- * The held tiles follow the scene's tiles blocks (followedTiles()).
+ * The held tiles see the frame's eye (HeldTiles::eye) and follow the
+ * scene's tiles blocks and that eye (followedTiles()), so a moving
+ * reach (moveReach()) runs none of them again.
  * The tree is not kept where the scene is not the one the tree was
  * made from, or its tiles blocks have other steps; the caller then
  * makes a tree again, with the least tolerance of this one.
  *
  * @param built The tree and its detail.
  * @param file The scene.
+ * @param eye The frame's camera's eye.
  */
-bool keptGeometry(BuiltGeometry& built, const SceneFile& file);
+bool keptGeometry(BuiltGeometry& built, const SceneFile& file, const math::Vector& eye);
 
 }

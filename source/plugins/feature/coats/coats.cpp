@@ -403,7 +403,10 @@ Shaded wornCoats(const CoatLadders& ladders, const CoatWear& wear) {
 	return shaded;
 }
 
-bool sceneWearsCoats(const Scene& scene) {
+bool sceneWearsCoats(const Scene& scene, const Looks& looks) {
+	if (!scene.tiles.empty() && !looks.coats.empty()) {
+		return true;
+	}
 	for (const Leaf& leaf : scene.leaves) {
 		if (!leaf.coats.empty()) {
 			return true;
