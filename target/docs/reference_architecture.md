@@ -133,7 +133,6 @@ pointer, once per batch, frame or run.
 | Reconstruction | `reconstructFrame` | in order | `reconstruction/mean` (reference), `temporal`, `atrous`, `upsample`, `upscale` | the drawn frame and its history into the shown image; never changes the scene, the world or the preparations |
 | Sink | `deliverFrame` | in order | `sink/file`, `sink/frames`, `sink/window` | hands the shown frame out |
 | Observer | `observed`, `tallied` | in order | `observer/progress`, `observer/metrics` | is told of the steps; changes nothing |
-| Backend | `openWorkers`, `hostWorkers`, `ranStep`, ... | one | `backend/cpu` | runs the workers' steps; the frame stays within noise |
 
 A preparation is not a plugin of its own: it is the `prepareFrame` hook
 of the plugin it serves (`geometry/tree`'s frame work,
@@ -192,20 +191,16 @@ function returns the struct, and any files of its own.
   a pass's tile). The Transport's state of a frame is
   `Renderer.drawing.transported`.
 
-## Workers and backends
+## Workers
 
 - A worker (`Worker`, core/worker.h) owns a pool of slots (`Pool`,
   core/batch.h: each slot's phase, kind, ray, hit and sample), the
   Transport's walk of each slot, the pattern registers, and what the
   pass holds of its tile. The steps fill it in place (rule 53).
-- A Backend opens workers (`openWorkers`: how many and their pool
-  size) and runs a worker's step (`ranStep`). `backend/cpu` opens one
-  worker per thread (`--threads`) and runs a step by calling the
-  chosen plugin's C++ kernel (`kernelOf()`). A backend that holds no
-  kernel for a step returns false and the fallback backend
-  (`fallbackBackend()`, `backend/cpu`) runs it. The fallback also hosts
-  every chosen backend's workers on its threads (`hostWorkers`).
-- Pass workers belong to the backends. `geometry/tree` builds a node
+- A pass (`onWorkers()`) runs one worker per thread (`--threads`),
+  each with a pool of `poolCapacity` slots; a worker's step calls the
+  chosen plugin's hook (`extendRays`, `arriveAtHits`, ...) directly.
+- Pass workers belong to the core. `geometry/tree` builds a node
   and runs a tile on the worker whose ray first needs them (a node near
   the root on the workers waiting for it too). A plugin's own work
   outside the passes may keep its own threads: the tree's object boxes
@@ -286,12 +281,6 @@ function returns the struct, and any files of its own.
   and no container inside an item; between steps vectors, spectra and
   colours are `math::FloatVector`, `FloatSpectrum` and `FloatColour`.
   Each header says what stays double.
-- **Blocks:** a `Block` (core/block.h) names a flat array the kernels
-  read: the tree's arrays, the transport's finishes, lamps and sky, a
-  preparation's table. `frameBlocks()` lists those of the frame being
-  drawn, from each plugin's `blocks` hook. A backend's `uploadBlock`
-  hook and `blockChanged()` exist; the loop sends no block to the
-  backends.
 - **Sequences:** `History` (core/history.h) holds what a frame leaves
   the next: the last `FrameRecord` (each pixel's light parts and first
   `Surface`, where a Reconstruction plugin reads them), each pixel's

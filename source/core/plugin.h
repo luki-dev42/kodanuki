@@ -10,7 +10,6 @@
 
 namespace kodanuki {
 
-struct Block;
 struct Colour;
 struct CountQuery;
 struct Counter;
@@ -258,11 +257,6 @@ struct Hooks {
 	 * at the end of a frame.
 	 */
 	std::vector<Counter> (*published)(const Renderer& renderer);
-	/**
-	 * Returns the flat arrays the plugin hands the kernels of the frame
-	 * being drawn (frameBlocks()).
-	 */
-	std::vector<Block> (*blocks)(const Renderer& renderer);
 	/**
 	 * A preparation: works out the tables the frame reads into the
 	 * plugin's state among the kept states (History.states), once per

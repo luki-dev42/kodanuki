@@ -33,7 +33,6 @@ Hooks noHooks() {
 		.observed         = nullptr,
 		.tallied          = nullptr,
 		.published        = nullptr,
-		.blocks           = nullptr,
 		.prepareFrame     = nullptr,
 		.broughtLight     = nullptr,
 		.broughtSpread    = nullptr,

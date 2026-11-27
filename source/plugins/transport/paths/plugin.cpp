@@ -1,6 +1,5 @@
 #include "plugins/transport/paths/plugin.h"
 
-#include "core/block.h"
 #include "core/render.h"
 #include "plugins/transport/paths/paths.h"
 
@@ -14,9 +13,9 @@
 
 namespace kodanuki {
 
-static_assert(std::is_trivially_copyable_v<Finish>, "a block's element is plain data");
-static_assert(std::is_trivially_copyable_v<Lamp>, "a block's element is plain data");
-static_assert(std::is_trivially_copyable_v<GradientSky>, "a block's element is plain data");
+static_assert(std::is_trivially_copyable_v<Finish>, "what the kernels read is plain data");
+static_assert(std::is_trivially_copyable_v<Lamp>, "what the kernels read is plain data");
+static_assert(std::is_trivially_copyable_v<GradientSky>, "what the kernels read is plain data");
 
 struct PathsCounts {
 	std::atomic<std::uint64_t> arrivals;
@@ -198,18 +197,6 @@ std::vector<Counter> pathsPublished(const Renderer& renderer) {
 	};
 }
 
-std::vector<Block> pathsBlocks(const Renderer& renderer) {
-	if (!renderer.drawing.transported) {
-		return {};
-	}
-	const Tracing& tracing = tracingOf(renderer.drawing.transported.get());
-	return {
-		Block { .name = "transport/paths.finishes", .data = tracing.materials.finishes.data(), .count = tracing.materials.finishes.size(), .size = sizeof(Finish) },
-		Block { .name = "transport/paths.lamps", .data = tracing.lights.lamps.data(), .count = tracing.lights.lamps.size(), .size = sizeof(Lamp) },
-		Block { .name = "transport/paths.sky", .data = &tracing.lights.sky, .count = 1, .size = sizeof(GradientSky) },
-	};
-}
-
 Plugin transportPathsPlugin() {
 	Hooks hooks         = noHooks();
 	hooks.openWorld     = pathsWorldOpened;
@@ -225,7 +212,6 @@ Plugin transportPathsPlugin() {
 	hooks.firstSurface  = pathsFirstSurface;
 	hooks.cameraSurface = pathsCameraSurface;
 	hooks.published     = pathsPublished;
-	hooks.blocks        = pathsBlocks;
 	return Plugin {
 		.name   = "transport/paths",
 		.point  = Point::Transport,

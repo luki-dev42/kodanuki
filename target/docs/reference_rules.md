@@ -8,16 +8,14 @@ a dropped rule is deleted.
 
 ## Scope
 
-1. The CPU is one backend (`backend/cpu`); a GPU backend may come as
-   a plugin of the Backend point. The renderer draws offline frames,
-   and a viewer (`kodanuki_view`, see 48) draws a sequence
-   interactively in a window.
+1. The renderer runs on the CPU. It draws offline frames, and a
+   viewer (`kodanuki_view`, see 48) draws a sequence interactively in
+   a window.
 2. The core is tiny: types, steps, points, plugins, workers, the loop.
    Plugins do all the work and may be large. The core renders nothing
    on its own.
 3. No dependencies beyond the C++ standard library for the core and
-   the CPU plugins. `sink/window` links SDL3; a GPU backend links
-   Vulkan and needs a GLSL compiler at build time. The build skips a
+   the CPU plugins. `sink/window` links SDL3. The build skips a
    plugin whose dependency is missing, and the program that needs it
    (`kodanuki_view` without SDL3). The scripts under `target/` use the
    Python standard library only.
@@ -273,8 +271,8 @@ a dropped rule is deleted.
     inside an item. Between steps a vector, a spectrum and a colour are
     kept as `math::FloatVector`, `FloatSpectrum` and `FloatColour`, a
     number as `float`; a kernel reads them as the double types. Every
-    such struct and every block element (`Block`) is checked trivially
-    copyable.
+    such struct and every element of an array the kernels read is
+    checked trivially copyable.
 56. Only the core's step functions read a clock to time the steps
     (core/step.h). A plugin publishes counters (`published`); it times
     no step and prints no metrics. Writing a report or a progress line

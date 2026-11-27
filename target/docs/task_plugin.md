@@ -55,8 +55,7 @@ Read `task_code.md` first, then the points in
 - **Geometry:** `geometry/tree` with every Detail and Build member, and
   with each alone, every cell built (`openEveryCell()`), meets what `geometry/sphere_trace` meets within the
   tolerance; its frame keeps the reference's mean.
-- **Execution, Backend:** `execution/packets`, and a backend that owns
-  no kernels (alone and beside `backend/cpu`), keep the mean.
+- **Execution:** `execution/packets` keeps the mean.
 - **Stopping, Sampler, Strategy:** each plugin changes the frame and
   keeps the mean, within 4.5 standard errors.
 - **Reconstruction:** `reconstruction/mean` over a clip of 16 frames of
