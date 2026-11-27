@@ -34,23 +34,6 @@ double secondsOf(const StepSeconds& seconds, LoopStep step) {
 	return seconds.seconds[std::size_t(step)];
 }
 
-Kernel kernelOf(const Plugin& plugin, LoopStep step) {
-	switch (step) {
-		case LoopStep::ExtendRays: return plugin.hooks.extendRays;
-		case LoopStep::ArriveAtHits: return plugin.hooks.arriveAtHits;
-		case LoopStep::ConnectLights: return plugin.hooks.connectLights;
-		case LoopStep::ScatterWalks: return plugin.hooks.scatterWalks;
-		default: return nullptr;
-	}
-}
-
-void ranKernel(const Renderer& renderer, Worker& worker, const Plugin& plugin, LoopStep step) {
-	const Hooks& backend = renderer.backends[worker.backend].hooks;
-	if (backend.ranStep == nullptr || !backend.ranStep(renderer, worker, plugin, step)) {
-		renderer.fallback.hooks.ranStep(renderer, worker, plugin, step);
-	}
-}
-
 double clockSeconds() {
 	return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
@@ -131,11 +114,11 @@ std::uint32_t answeredSlots(const Pool& pool) {
 
 void extendRays(const Renderer& renderer, Worker& worker) {
 	if (renderer.observing.workers.empty()) {
-		ranKernel(renderer, worker, renderer.execution, LoopStep::ExtendRays);
+		renderer.execution.hooks.extendRays(renderer, worker);
 		return;
 	}
 	const double begun = clockSeconds();
-	ranKernel(renderer, worker, renderer.execution, LoopStep::ExtendRays);
+	renderer.execution.hooks.extendRays(renderer, worker);
 	workerStepEnded(renderer, worker, stepEvent(LoopStep::ExtendRays, worker.executor, 0, answeredSlots(worker.pool)), begun);
 }
 
@@ -161,34 +144,34 @@ std::uint32_t slotsThat(const Pool& pool, bool (*takes)(const Pool& pool, std::u
 
 void arriveAtHits(const Renderer& renderer, Worker& worker) {
 	if (renderer.observing.workers.empty()) {
-		ranKernel(renderer, worker, renderer.transport, LoopStep::ArriveAtHits);
+		renderer.transport.hooks.arriveAtHits(renderer, worker);
 		return;
 	}
 	const std::uint32_t walks = slotsThat(worker.pool, arrives);
 	const double begun        = clockSeconds();
-	ranKernel(renderer, worker, renderer.transport, LoopStep::ArriveAtHits);
+	renderer.transport.hooks.arriveAtHits(renderer, worker);
 	workerStepEnded(renderer, worker, stepEvent(LoopStep::ArriveAtHits, worker.transporter, 0, walks), begun);
 }
 
 void connectLights(const Renderer& renderer, Worker& worker) {
 	if (renderer.observing.workers.empty()) {
-		ranKernel(renderer, worker, renderer.transport, LoopStep::ConnectLights);
+		renderer.transport.hooks.connectLights(renderer, worker);
 		return;
 	}
 	const std::uint32_t walks = slotsThat(worker.pool, connects);
 	const double begun        = clockSeconds();
-	ranKernel(renderer, worker, renderer.transport, LoopStep::ConnectLights);
+	renderer.transport.hooks.connectLights(renderer, worker);
 	workerStepEnded(renderer, worker, stepEvent(LoopStep::ConnectLights, worker.transporter, 0, walks), begun);
 }
 
 void scatterWalks(const Renderer& renderer, Worker& worker) {
 	if (renderer.observing.workers.empty()) {
-		ranKernel(renderer, worker, renderer.transport, LoopStep::ScatterWalks);
+		renderer.transport.hooks.scatterWalks(renderer, worker);
 		return;
 	}
 	const std::uint32_t walks = slotsThat(worker.pool, scatters);
 	const double begun        = clockSeconds();
-	ranKernel(renderer, worker, renderer.transport, LoopStep::ScatterWalks);
+	renderer.transport.hooks.scatterWalks(renderer, worker);
 	workerStepEnded(renderer, worker, stepEvent(LoopStep::ScatterWalks, worker.transporter, 0, walks), begun);
 }
 

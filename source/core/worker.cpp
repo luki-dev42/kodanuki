@@ -7,7 +7,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <functional>
 #include <mutex>
+#include <thread>
 
 namespace kodanuki {
 
@@ -51,15 +53,7 @@ PixelWork idlePixels(int capacity) {
 	};
 }
 
-/**
- * A worker's place before it opens: its backend and its pool size.
- */
-struct Seat {
-	std::uint32_t backend;
-	int capacity;
-};
-
-Worker freshWorker(const Renderer& renderer, int index, const Seat& seat, std::uint32_t executor, std::uint32_t transporter) {
+Worker freshWorker(const Renderer& renderer, int index, std::uint32_t executor, std::uint32_t transporter) {
 	const Tile none = {
 		.x      = 0,
 		.y      = 0,
@@ -69,33 +63,25 @@ Worker freshWorker(const Renderer& renderer, int index, const Seat& seat, std::u
 
 	return Worker {
 		.index       = index,
-		.backend     = seat.backend,
 		.executor    = executor,
 		.transporter = transporter,
 		.tile        = none,
 		.taken       = 0,
-		.pool        = emptyPool(seat.capacity),
+		.pool        = emptyPool(poolCapacity),
 		.walks       = renderer.transport.hooks.openWorker(),
 		.registers   = std::vector<double>(longestProgram(renderer.file.scene), 0.0),
-		.pixels      = idlePixels(seat.capacity),
+		.pixels      = idlePixels(poolCapacity),
 		.held        = nullptr,
 	};
 }
 
-std::vector<Seat> openedSeats(const Renderer& renderer) {
-	std::vector<Seat> seats;
-	for (std::uint32_t backend = 0; backend < renderer.backends.size(); ++backend) {
-		const Crew crew = renderer.backends[backend].hooks.openWorkers(renderer);
-		seats.insert(seats.end(), std::size_t(crew.workers), Seat { .backend = backend, .capacity = crew.capacity });
+void hostedWorkers(int count, const std::function<void(int worker)>& run) {
+	std::vector<std::thread> threads;
+	for (int worker = 0; worker < count; ++worker) {
+		threads.emplace_back(run, worker);
 	}
-	return seats;
-}
-
-void closedWorkers(const Renderer& renderer) {
-	for (const Plugin& backend : renderer.backends) {
-		if (backend.hooks.closeWorkers) {
-			backend.hooks.closeWorkers(renderer);
-		}
+	for (std::thread& thread : threads) {
+		thread.join();
 	}
 }
 
@@ -105,11 +91,10 @@ void onWorkers(Renderer& renderer, const Pass& pass) {
 	const std::uint32_t executor    = pluginIndex(renderer.execution.name);
 	const std::uint32_t transporter = pluginIndex(renderer.transport.name);
 	const double begun              = frameStepBegun(renderer.observing, LoopStep::Pass, corePlugin, std::uint32_t(tiles.size()));
-	const std::vector<Seat> seats   = openedSeats(renderer);
 	std::atomic<std::size_t> next   = 0;
 	std::mutex placing;
 	const auto run = [&](int index) {
-		Worker worker = freshWorker(reading, index, seats[std::size_t(index)], executor, transporter);
+		Worker worker = freshWorker(reading, index, executor, transporter);
 		for (std::size_t k = next++; k < tiles.size(); k = next++) {
 			worker.tile  = tiles[k];
 			worker.taken = k;
@@ -121,17 +106,8 @@ void onWorkers(Renderer& renderer, const Pass& pass) {
 		}
 	};
 
-	renderer.fallback.hooks.hostWorkers(reading, int(seats.size()), run);
-	closedWorkers(renderer);
+	hostedWorkers(renderer.options.choices.threads, run);
 	frameStepEnded(renderer.observing, LoopStep::Pass, corePlugin, std::uint32_t(tiles.size()), begun);
-}
-
-void blockChanged(const Renderer& renderer, const Block& block) {
-	for (const Plugin& backend : renderer.backends) {
-		if (backend.hooks.uploadBlock) {
-			backend.hooks.uploadBlock(renderer, block);
-		}
-	}
 }
 
 } // namespace kodanuki

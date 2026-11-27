@@ -44,11 +44,6 @@ Hooks noHooks() {
 		.allottedSplit    = nullptr,
 		.reconstructFrame = nullptr,
 		.needed           = nullptr,
-		.openWorkers      = nullptr,
-		.hostWorkers      = nullptr,
-		.ranStep          = nullptr,
-		.closeWorkers     = nullptr,
-		.uploadBlock      = nullptr,
 	};
 }
 

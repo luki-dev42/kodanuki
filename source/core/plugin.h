@@ -4,7 +4,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -15,10 +14,8 @@ struct Block;
 struct Colour;
 struct CountQuery;
 struct Counter;
-struct Crew;
 struct Geometry;
 struct Image;
-enum class LoopStep : std::uint8_t;
 struct ReconstructionQuery;
 struct Renderer;
 struct StepEvent;
@@ -69,10 +66,6 @@ enum class Point : std::uint8_t {
 	 * What watches the steps, as the progress line and the metrics.
 	 */
 	Observer,
-	/**
-	 * What a worker runs a step on.
-	 */
-	Backend,
 	/**
 	 * A member of a point another plugin owns, which that plugin
 	 * switches in its own dispatch file; the core calls only its
@@ -267,7 +260,7 @@ struct Hooks {
 	std::vector<Counter> (*published)(const Renderer& renderer);
 	/**
 	 * Returns the flat arrays the plugin hands the kernels of the frame
-	 * being drawn (frameBlocks()), for a backend to copy.
+	 * being drawn (frameBlocks()).
 	 */
 	std::vector<Block> (*blocks)(const Renderer& renderer);
 	/**
@@ -330,31 +323,6 @@ struct Hooks {
 	 * without them is refused.
 	 */
 	std::vector<std::string> (*needed)();
-	/**
-	 * A Backend's hook: how many workers it brings to a pass and the
-	 * pool size of each.
-	 */
-	Crew (*openWorkers)(const Renderer& renderer);
-	/**
-	 * A Backend's hook that hosts the workers of every chosen backend:
-	 * runs each worker, from 0 to count, at once, and waits for them all.
-	 */
-	void (*hostWorkers)(const Renderer& renderer, int count, const std::function<void(int worker)>& run);
-	/**
-	 * A Backend's hook: runs the plugin's kernel of a worker's step on
-	 * the worker's batch; false where it holds no kernel for that step,
-	 * so the fallback backend runs it (Renderer.fallback).
-	 */
-	bool (*ranStep)(const Renderer& renderer, Worker& worker, const Plugin& plugin, LoopStep step);
-	/**
-	 * A Backend's hook: closes what its workers held, after a pass.
-	 */
-	void (*closeWorkers)(const Renderer& renderer);
-	/**
-	 * A Backend's hook: told that a block the kernels read is new or
-	 * changed.
-	 */
-	void (*uploadBlock)(const Renderer& renderer, const Block& block);
 };
 
 /**

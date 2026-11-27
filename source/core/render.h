@@ -109,15 +109,6 @@ struct Renderer {
 	 */
 	Plugin execution;
 	/**
-	 * The Backend plugins, whose workers draw a pass together.
-	 */
-	std::vector<Plugin> backends;
-	/**
-	 * The backend that hosts the workers on its threads and runs a step
-	 * a chosen backend holds no kernel for (fallbackBackend()).
-	 */
-	Plugin fallback;
-	/**
 	 * The Source plugins, in order.
 	 */
 	std::vector<Plugin> sources;

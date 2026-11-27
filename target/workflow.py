@@ -21,7 +21,6 @@ VIEWER = ('internal_width', 'internal_height')
 KEYS = {
     'geometry': ('tree', 'sphere_trace'),
     'execution': ('single', 'packets'),
-    'backend': ('cpu',),
     'stopping': ('fixed_count', 'confidence_interval'),
     'detail': ('focus_on_view', 'split_hidden_primitives', 'split_crowded_leaves'),
     'build': ('cut_long_programs', 'face_slabs', 'shared_coefficients'),
@@ -34,7 +33,7 @@ LOOP_KEYS = {
     'observer': ('progress', 'metrics'),
     'reconstruction': ('mean', 'temporal', 'atrous', 'upsample', 'upscale'),
 }
-ONE = ('geometry', 'execution', 'backend', 'stopping')
+ONE = ('geometry', 'execution', 'stopping')
 BUILT = ('build/faced_hits', 'feature/clouds', 'feature/path_rules', 'feature/coats')
 ALWAYS = ('feature/absorption', 'feature/atmosphere', 'feature/dispersion',
     'feature/scattering', 'feature/sky_layers', 'transport/paths')

@@ -13,8 +13,8 @@ struct Renderer;
  * lights, a plugin's prepared table.
  *
  * Its elements are plain data, without a pointer or a container inside
- * (each is checked trivially copyable where the block is made), so a
- * backend may copy the bytes into a buffer of its own. The block only
+ * (each is checked trivially copyable where the block is made), so
+ * its bytes may be copied into a buffer elsewhere. The block only
  * names the array; the plugin that made it keeps it, as long as the
  * frame it was read from is drawn.
  */

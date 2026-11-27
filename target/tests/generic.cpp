@@ -3,6 +3,7 @@
 #include "core/options.h"
 #include "core/plugin.h"
 #include "core/render.h"
+#include "core/step.h"
 #include "plugins/geometry/sphere_trace/sphere_trace.h"
 #include "plugins/geometry/tree/build.h"
 #include "plugins/geometry/tree/detail.h"
@@ -12,7 +13,6 @@
 
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -128,7 +128,7 @@ std::vector<std::string> runWords(const GenericRun& run, int seed) {
 	return words;
 }
 
-void drawnWith(const GenericRun& run, int seed, const std::vector<Plugin>& backends) {
+void drawnWith(const GenericRun& run, int seed, const std::vector<Plugin>& observers) {
 	std::vector<std::string> words = runWords(run, seed);
 	std::vector<char*> values;
 	for (std::string& word : words) {
@@ -141,7 +141,7 @@ void drawnWith(const GenericRun& run, int seed, const std::vector<Plugin>& backe
 	SceneFile file        = sceneOrExit(words[1]);
 	const Options options = readOptions(file, arguments, false);
 	Renderer renderer     = rendererOf(std::move(file), options);
-	renderer.backends     = backends.empty() ? renderer.backends : backends;
+	renderer.observers.insert(renderer.observers.end(), observers.begin(), observers.end());
 	rendered(renderer);
 }
 
@@ -209,21 +209,18 @@ void checkExecutionPoint(const GenericSets& sets) {
 	checkAgrees("Execution: execution/packets keeps the mean of the reference set with geometry/tree", stillSpread(GenericRun { .uses = { "geometry=tree", "execution=packets" }, .flags = {} }), sets.tree);
 }
 
-std::atomic<int>& fakeSteps() {
-	static std::atomic<int> steps = 0;
-	return steps;
-}
-
-Crew fakeWorkers(const Renderer&) {
-	return Crew {
-		.workers  = 3,
-		.capacity = poolCapacity,
-	};
-}
-
-std::atomic<int>& fakeBlocks() {
-	static std::atomic<int> blocks = 0;
+int& seenBlocks() {
+	static int blocks = 0;
 	return blocks;
+}
+
+const Renderer*& watchedRenderer() {
+	static const Renderer* renderer = nullptr;
+	return renderer;
+}
+
+void watchedOpened(Renderer& renderer) {
+	watchedRenderer() = &renderer;
 }
 
 int soundBlocks(const Renderer& renderer) {
@@ -235,19 +232,19 @@ int soundBlocks(const Renderer& renderer) {
 	return sound;
 }
 
-bool fakeRan(const Renderer& renderer, Worker&, const Plugin&, LoopStep) {
-	fakeSteps() += 1;
-	fakeBlocks() = std::max(fakeBlocks().load(), soundBlocks(renderer));
-	return false;
+void watchedStep(void*, const StepEvent& event) {
+	if (event.step == LoopStep::Pass) {
+		seenBlocks() = std::max(seenBlocks(), soundBlocks(*watchedRenderer()));
+	}
 }
 
-Plugin fakeBackend() {
-	Hooks hooks       = noHooks();
-	hooks.openWorkers = fakeWorkers;
-	hooks.ranStep     = fakeRan;
+Plugin blocksObserver() {
+	Hooks hooks        = noHooks();
+	hooks.openRenderer = watchedOpened;
+	hooks.observed     = watchedStep;
 	return Plugin {
-		.name   = "backend/fake",
-		.point  = Point::Backend,
+		.name   = "observer/blocks",
+		.point  = Point::Observer,
 		.effect = Effect::Exact,
 		.hooks  = hooks,
 		.reads  = Reads::Nothing,
@@ -255,33 +252,23 @@ Plugin fakeBackend() {
 	};
 }
 
-Image backendStill(const std::vector<Plugin>& backends, int seed) {
-	const GenericRun still = {
-		.uses  = {},
+int blocksSeen(const std::vector<std::string>& uses) {
+	const GenericRun run = {
+		.uses  = uses,
 		.flags = { "--out", genericPath("image.ppm"), "--pfm", genericPath("image.pfm") },
 	};
 
-	drawnWith(still, seed, backends);
-	return readPfm(genericPath("image.pfm"));
+	seenBlocks() = 0;
+	drawnWith(run, 3, { blocksObserver() });
+	return seenBlocks();
 }
 
-void checkBackendPoint(const GenericSets& sets) {
-	const std::vector<Plugin> fake  = { fakeBackend() };
-	const std::vector<Plugin> mixed = { pluginNamed("backend/cpu"), fakeBackend() };
-	checkAgrees("Backend: a backend that owns no kernels keeps the mean of backend/cpu through the fallback", spreadOf(backendStill(fake, 3), backendStill(fake, 4)), sets.reference);
-	check(fakeSteps() > 0, "a backend that owns no kernels is asked for every step of its workers and hands them to the fallback");
-	const int bare = fakeBlocks().exchange(0);
-
-	const GenericRun tree = {
-		.uses  = { "geometry=tree" },
-		.flags = { "--out", genericPath("image.ppm"), "--pfm", genericPath("image.pfm") },
-	};
-
-	drawnWith(tree, 3, fake);
-	std::printf("generic Backend: %d blocks of the frame hold data with the reference set, %d with geometry/tree\n", bare, fakeBlocks().load());
-	check(bare == 3, "a backend finds the transport's finishes, lamps and sky as blocks of the frame, each with its data and an element size");
-	check(fakeBlocks() >= bare + 5, "with geometry/tree a backend finds the tree's arrays as blocks too");
-	checkAgrees("Backend: workers of backend/cpu and of a backend that owns no kernels draw one frame together, keeping the mean of backend/cpu", spreadOf(backendStill(mixed, 3), backendStill(mixed, 4)), sets.reference);
+void checkFrameBlocks() {
+	const int bare = blocksSeen({});
+	const int tree = blocksSeen({ "geometry=tree" });
+	std::printf("generic blocks: %d blocks of the frame hold data with the reference set, %d with geometry/tree\n", bare, tree);
+	check(bare == 3, "the frame's blocks hold the transport's finishes, lamps and sky, each with its data and an element size");
+	check(tree >= bare + 5, "with geometry/tree the frame's blocks hold the tree's arrays too");
 }
 
 void checkChanged(const char* what, const GenericSpread& on, const GenericSpread& base) {
@@ -580,7 +567,7 @@ void checkGeneric() {
 
 	checkGeometryImage(sets);
 	checkExecutionPoint(sets);
-	checkBackendPoint(sets);
+	checkFrameBlocks();
 	checkStoppingPoint(sets);
 	checkSamplerPoint(sets);
 	checkStrategyPoint(sets);

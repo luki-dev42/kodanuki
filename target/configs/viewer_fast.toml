@@ -12,7 +12,6 @@ internal_width = 960
 internal_height = 600
 
 [plugins]
-"backend/cpu" = true
 "build/cut_long_programs" = true
 "build/face_slabs" = true
 "build/faced_hits" = true

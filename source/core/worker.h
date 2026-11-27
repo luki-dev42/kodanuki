@@ -10,7 +10,6 @@
 
 namespace kodanuki {
 
-struct Block;
 struct Renderer;
 
 /**
@@ -36,20 +35,6 @@ struct Tile {
 };
 
 /**
- * The workers a backend brings to a pass.
- */
-struct Crew {
-	/**
-	 * How many workers.
-	 */
-	int workers;
-	/**
-	 * The slots of each worker's pool, at most poolCapacity.
-	 */
-	int capacity;
-};
-
-/**
  * One worker of a pass and what it works with, updated in place by the
  * steps (rule 46).
  */
@@ -58,11 +43,6 @@ struct Worker {
 	 * Its place among the pass's workers, from 0.
 	 */
 	int index;
-	/**
-	 * Its backend's place among the chosen backends
-	 * (Renderer.backends), which runs its steps.
-	 */
-	std::uint32_t backend;
 	/**
 	 * The Execution plugin's place in everyPlugin(), which its
 	 * extendRays reports.
@@ -142,9 +122,8 @@ std::vector<Tile> tilesOf(int width, int height, int size);
 
 /**
  * Run a pass over the renderer's running tiles (Renderer.drawing.tiles)
- * on the workers every chosen backend opens (openWorkers), hosted by
- * the fallback backend (hostWorkers): every worker takes tiles off one
- * counter until none are left, opens each (openTile()), runs
+ * on one worker per thread (Choices.threads): every worker takes tiles
+ * off one counter until none are left, opens each (openTile()), runs
  * tracedTile() on it and places it under one lock (placeTile()). The
  * pass is a step of the frame (Step::Pass).
  *
@@ -164,14 +143,5 @@ void onWorkers(Renderer& renderer, const Pass& pass);
  * @param worker The worker, its tile opened.
  */
 void tracedTile(const Renderer& renderer, const Pass& pass, Worker& worker);
-
-/**
- * Tell every chosen backend that a block the kernels read is new or
- * changed (uploadBlock).
- *
- * @param renderer The renderer.
- * @param block The block.
- */
-void blockChanged(const Renderer& renderer, const Block& block);
 
 } // namespace kodanuki

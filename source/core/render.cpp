@@ -324,8 +324,6 @@ Renderer rendererOf(SceneFile file, const Options& options) {
 		.geometry        = pluginsAt({ options.choices.geometry }, Point::Geometry).front(),
 		.transport       = pluginsAt({ options.choices.transport }, Point::Transport).front(),
 		.execution       = pluginsAt({ options.choices.execution }, Point::Execution).front(),
-		.backends        = pluginsAt({ options.choices.backend }, Point::Backend),
-		.fallback        = pluginsAt({ fallbackBackend() }, Point::Backend).front(),
 		.sources         = pluginsAt(options.sources, Point::Source),
 		.sinks           = pluginsAt(options.sinks, Point::Sink),
 		.observers       = pluginsAt(options.observers, Point::Observer),

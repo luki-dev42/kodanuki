@@ -7,7 +7,6 @@ faces = true
 smooth_glass = "exact"
 
 [plugins]
-"backend/cpu" = true
 "build/cut_long_programs" = false
 "build/face_slabs" = false
 "build/faced_hits" = false

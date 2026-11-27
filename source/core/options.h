@@ -51,10 +51,6 @@ struct Choices {
 	 */
 	std::string execution;
 	/**
-	 * The Backend plugin's name, as `backend/cpu`.
-	 */
-	std::string backend;
-	/**
 	 * The Stopping plugin's name, as `stopping/confidence_interval`.
 	 */
 	std::string stopping;
@@ -100,8 +96,8 @@ struct Choices {
 	 */
 	double memory;
 	/**
-	 * How many threads: the workers `backend/cpu` opens, and the
-	 * threads of the plugins' own work.
+	 * How many threads: the workers of a pass, and the threads of the
+	 * plugins' own work.
 	 */
 	int threads;
 };
@@ -164,13 +160,6 @@ SceneFile sceneOrExit(const std::string& path);
  * exact faces, the scene's region and 8 threads.
  */
 Choices defaultChoices();
-
-/**
- * Return the name of the backend that hosts every chosen backend's
- * workers on its threads and runs a step another backend holds no
- * kernel for: `backend/cpu`.
- */
-std::string fallbackBackend();
 
 /**
  * Return the choices with one `--use name=value` applied.

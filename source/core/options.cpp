@@ -37,7 +37,6 @@ std::vector<UseKey> pluginKeys() {
 	return {
 		useKey("geometry", UseForm::One, { "tree", "sphere_trace" }, "what rays meet: the tree of exact faces, or the scene's field sphere-traced (with execution=single and a sampler without glowing_surfaces and toward_mirrors)"),
 		useKey("execution", UseForm::One, { "single", "packets" }, "how rays are traced, one by one or in packets (with geometry=tree); the frame is the same within noise"),
-		useKey("backend", UseForm::One, { "cpu" }, "what the workers run the steps on: the CPU's threads"),
 		useKey("stopping", UseForm::One, { "fixed_count", "confidence_interval" }, "when a pixel is done: after --samples, or once its noise is within --tolerance"),
 		useKey("detail", UseForm::Joined, { "focus_on_view", "split_hidden_primitives", "split_crowded_leaves" }, "what says how fine the tree's cells must be, besides their distance"),
 		useKey("build", UseForm::Joined, { "cut_long_programs", "face_slabs", "shared_coefficients" }, "the build passes that rewrite the tree"),
@@ -122,7 +121,6 @@ Choices defaultChoices() {
 		.geometry    = "geometry/tree",
 		.transport   = "transport/paths",
 		.execution   = "execution/packets",
-		.backend     = "backend/cpu",
 		.stopping    = "stopping/confidence_interval",
 		.owned       = defaultOwned(),
 		.smoothGlass = "exact",
@@ -135,10 +133,6 @@ Choices defaultChoices() {
 		.memory      = 0,
 		.threads     = 8,
 	};
-}
-
-std::string fallbackBackend() {
-	return "backend/cpu";
 }
 
 std::string takesText(const UseKey& key) {
@@ -226,9 +220,6 @@ std::string* singleChoice(Choices& choices, const std::string& name) {
 	}
 	if (name == "execution") {
 		return &choices.execution;
-	}
-	if (name == "backend") {
-		return &choices.backend;
 	}
 	return name == "stopping" ? &choices.stopping : nullptr;
 }
@@ -591,7 +582,7 @@ SceneFile reloadedFile(SceneFile loaded, const Options& options) {
 }
 
 bool chosenIn(const Choices& choices, const std::string& name) {
-	const std::vector<std::string> singles = { choices.geometry, choices.execution, choices.backend, choices.stopping };
+	const std::vector<std::string> singles = { choices.geometry, choices.execution, choices.stopping };
 	return std::count(singles.begin(), singles.end(), name) > 0 || std::count(choices.owned.begin(), choices.owned.end(), name) > 0;
 }
 
@@ -605,7 +596,7 @@ bool switchedByUse(const std::string& name) {
 std::vector<std::string> chosenPlugins(const Options& options) {
 	const Choices& choices          = options.choices;
 	std::vector<std::string> chosen = options.sources;
-	chosen.insert(chosen.end(), { choices.transport, choices.geometry, choices.execution, choices.backend, choices.stopping });
+	chosen.insert(chosen.end(), { choices.transport, choices.geometry, choices.execution, choices.stopping });
 	chosen.insert(chosen.end(), choices.owned.begin(), choices.owned.end());
 	chosen.insert(chosen.end(), options.reconstruction.begin(), options.reconstruction.end());
 	chosen.insert(chosen.end(), options.sinks.begin(), options.sinks.end());

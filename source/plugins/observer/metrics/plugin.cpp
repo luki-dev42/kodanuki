@@ -267,7 +267,6 @@ const char* pointName(Point point) {
 		case Point::Reconstruction: return "Reconstruction";
 		case Point::Sink: return "Sink";
 		case Point::Observer: return "Observer";
-		case Point::Backend: return "Backend";
 		case Point::Owned: return "Owned";
 	}
 

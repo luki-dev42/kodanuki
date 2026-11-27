@@ -9,8 +9,6 @@
 
 namespace kodanuki {
 
-struct Plugin;
-
 /**
  * A step of the render loop, as the observers are told of it.
  *
@@ -210,21 +208,6 @@ struct StepSeconds {
 	 */
 	std::array<double, stepCount> seconds;
 };
-
-/**
- * A plugin's C++ kernel of a worker's step, the hook `backend/cpu`
- * runs.
- */
-using Kernel = void (*)(const Renderer& renderer, Worker& worker);
-
-/**
- * Return the plugin's C++ kernel of a worker's step: its extendRays,
- * arriveAtHits, connectLights or scatterWalks; null for another step.
- *
- * @param plugin The plugin.
- * @param step The step.
- */
-Kernel kernelOf(const Plugin& plugin, LoopStep step);
 
 /**
  * Return an Observing that tells no one.

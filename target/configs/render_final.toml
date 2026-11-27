@@ -9,7 +9,6 @@ smooth_glass = "exact"
 glow_balls = true
 
 [plugins]
-"backend/cpu" = true
 "build/cut_long_programs" = true
 "build/face_slabs" = true
 "build/faced_hits" = true

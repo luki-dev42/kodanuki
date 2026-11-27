@@ -102,8 +102,6 @@ Renderer testRenderer(const FrameInput& input, const FrameStep& step) {
 		.geometry        = testPlugin("geometry/tree"),
 		.transport       = input.transport,
 		.execution       = testPlugin(input.execution),
-		.backends        = testPlugins({ "backend/cpu" }),
-		.fallback        = testPlugin("backend/cpu"),
 		.sources         = {},
 		.sinks           = {},
 		.observers       = {},
